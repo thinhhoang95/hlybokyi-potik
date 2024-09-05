@@ -6,7 +6,8 @@ import numpy as np
 
 from path_prefix import PATH_PREFIX
 
-N_CALLSIGNS = 1_000
+N_CALLSIGNS = 1_000 # number of callsigns for one-file callsigns
+N_CALLSIGNS_MULTI = 1_000 # number of callsigns for multi-file callsigns
 
 def create_dir_if_not_exists() -> None:
     # Create the data/sample directory if it doesn't exist
@@ -27,7 +28,7 @@ def get_ids_in_file(catalog: pd.DataFrame, file: str, ids: list) -> list:
     # return the ids that file is in all_files
     return catalog_filtered[catalog_filtered['all_files'].str.contains(file)]['id'].unique()
 
-def sample_working_dataset(n_callsigns: int = N_CALLSIGNS, sample_file_name: str = 'sample.csv') -> None:
+def sample_working_dataset(n_callsigns: int = N_CALLSIGNS, sample_file_name: str = 'sample.csv', n_callsigns_multi: int = N_CALLSIGNS_MULTI) -> None:
     create_dir_if_not_exists()
     # List all csv.gz files in the data/csv directory
     csv_files = [file for file in os.listdir(f'{PATH_PREFIX}/data/csv') if file.endswith('.csv.gz')]
@@ -64,7 +65,7 @@ def sample_working_dataset(n_callsigns: int = N_CALLSIGNS, sample_file_name: str
     print('Sampling multi-file callsigns')
     # id_multi_file samples from the id column of the catalog
     id_multi_file = catalog['id'].unique()
-    id_multi_file = np.random.choice(id_multi_file, n_callsigns_per_file, replace=False)
+    id_multi_file = np.random.choice(id_multi_file, n_callsigns_multi, replace=False)
     print('Some ids in id_multi_file: ', id_multi_file[:10])
     for file in csv_files:
         df = pd.read_csv(f'{PATH_PREFIX}/data/csv/{file}')
@@ -82,4 +83,4 @@ def sample_working_dataset(n_callsigns: int = N_CALLSIGNS, sample_file_name: str
     df_sample.to_csv(f'{PATH_PREFIX}/data/sample/{sample_file_name}', index=False)
 
 if __name__ == '__main__':
-    sample_working_dataset(N_CALLSIGNS,'sample.csv')
+    sample_working_dataset(N_CALLSIGNS, 'sample.csv', N_CALLSIGNS_MULTI)

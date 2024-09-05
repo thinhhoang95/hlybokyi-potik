@@ -56,8 +56,15 @@ def process_sample_file(df_flight: pd.DataFrame):
 
 if __name__ == "__main__":
     create_dirs()
-    df_flight = pd.read_csv(PATH_PREFIX + "/data/sample/sample.csv")
-    turns_df, rises_df = process_sample_file(df_flight)
-    # Save tr_df to a csv file
-    turns_df.to_csv(PATH_PREFIX + "/data/wp/sample.turns.csv", index=False)
-    rises_df.to_csv(PATH_PREFIX + "/data/wp/sample.rises.csv", index=False)
+    # List all the files in the data/sample directory
+    files = os.listdir(PATH_PREFIX + "/data/sample")
+    # Only keep files that contains "sample"
+    files = [file for file in files if "sample" in file]
+    # Drop the ".csv" extension in the files 
+    files = [file.replace(".csv", "") for file in files]
+    for file in files:
+        df_flight = pd.read_csv(PATH_PREFIX + "/data/sample/" + file + ".csv")
+        turns_df, rises_df = process_sample_file(df_flight)
+        # Save tr_df to a csv file
+        turns_df.to_csv(PATH_PREFIX + "/data/wp/" + file + ".turns.csv", index=False)
+        rises_df.to_csv(PATH_PREFIX + "/data/wp/" + file + ".rises.csv", index=False)

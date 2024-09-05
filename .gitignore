@@ -3,3 +3,4 @@ data/tar/*
 data/sample/*
 *.pyc
 data/wp/*
+*.tar.gz
