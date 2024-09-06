@@ -212,3 +212,36 @@ def get_track_drift_rate(lat: float, lon: float, initial_crs: float):
     if d_angle > 1:
         print('Caution: drift rate is greater than 1 degree per kilometer. Check the input values.')
     return d_angle
+
+def great_circle_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """
+    Calculate the great circle distance between two points on the Earth's surface.
+
+    Args:
+        lat1 (float): Latitude of the first point in degrees
+        lon1 (float): Longitude of the first point in degrees
+        lat2 (float): Latitude of the second point in degrees
+        lon2 (float): Longitude of the second point in degrees
+
+    Returns:
+        float: Great circle distance between the two points in kilometers
+
+    Example:
+        distance = great_circle_distance(37.7749, -122.4194, 40.7128, -74.0060)
+    """
+    # Convert latitude and longitude to radians
+    lat1, lon1, lat2, lon2 = map(np.radians, [lat1, lon1, lat2, lon2])
+
+    # Haversine formula
+    dlat = lat2 - lat1
+    dlon = lon2 - lon1
+    a = np.sin(dlat/2)**2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon/2)**2
+    c = 2 * np.arctan2(np.sqrt(a), np.sqrt(1-a))
+
+    # Earth's radius in kilometers (mean radius = 6371 km)
+    R = 6371.0
+
+    # Calculate the distance
+    distance = R * c
+
+    return distance

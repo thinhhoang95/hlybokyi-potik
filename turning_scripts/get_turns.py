@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from geo.drift_compensation import get_track_drift_rate
+from geo.drift_compensation import get_track_drift_rate, great_circle_distance
 from changepy import pelt
 from changepy.costs import normal_mean
 import matplotlib.pyplot as plt
@@ -30,7 +30,6 @@ class TurnAndRise(TypedDict):
     tp_lat: np.ndarray
     tp_lon: np.ndarray
     tp_alt: np.ndarray
-    tp_vel: np.ndarray
     landed: bool # 1 if the changepoint is the moment the aircraft landed (alt < 500)
     tp_wp: NotRequired[list] # list of waypoint names
     
@@ -39,7 +38,6 @@ class TurnAndRise(TypedDict):
     dp_lat: np.ndarray
     dp_lon: np.ndarray
     dp_alt: np.ndarray
-    dp_vel: np.ndarray
 
     # Flight identification
     ident: str
@@ -104,14 +102,17 @@ def get_turning_points(df_ident: pd.DataFrame) -> TurnAndRise:
     """
     # Drop all rows with NaN values
     df_ident = df_ident.dropna() 
+    # If the dataframe is empty, we raise an error
+    if len(df_ident) == 0:
+        raise ValueError('The dataframe is empty.')
     # Extract the values from the dataframe
-    rlastposupdate = forward_fill(df_ident['lastposupdate'].values) # - df_ident['lastposupdate'].min()
+    rlastposupdate = forward_fill(df_ident['time'].values) # - df_ident['time'].min() # in miliseconds
     hdg = forward_fill(df_ident['heading'].values)
-    vel = forward_fill(df_ident['velocity'].values / 1000) # m/s -> km/s
     lat = forward_fill(df_ident['lat'].values)
     lon = forward_fill(df_ident['lon'].values)
     alt = forward_fill(df_ident['geoaltitude'].values)
     ident = df_ident['id'].values[0]
+    vel = np.zeros_like(hdg)
 
     # Detection of turning points
     # Compute the drift compensation
@@ -119,6 +120,8 @@ def get_turning_points(df_ident: pd.DataFrame) -> TurnAndRise:
     cumul_drift = 0
     hdg_compensated = np.zeros_like(hdg)
     for i in range(1, len(hdg)):
+        # Estimate the velocity of the aircraft
+        vel[i-1] = great_circle_distance(lat[i-1], lon[i-1], lat[i], lon[i]) / (rlastposupdate[i] - rlastposupdate[i-1]) # in km/s
         # We will use the last time's value to compensate the drift for this time
         track_drift[i] = get_track_drift_rate(lat[i-1], lon[i-1], hdg[i-1]) * vel[i-1] * (rlastposupdate[i] - rlastposupdate[i-1])
         cumul_drift += track_drift[i]
@@ -165,15 +168,15 @@ def get_turning_points(df_ident: pd.DataFrame) -> TurnAndRise:
     tp_lat.insert(0, lat[0])
     tp_lon.insert(0, lon[0])
     tp_time.insert(0, rlastposupdate[0])
-    tp_vel.insert(0, vel[0])
     tp_alt.insert(0, alt[0])
+    tp_vel.insert(0, vel[0])
     changepoints = np.insert(changepoints, 0, 0)
 
     tp_lat.append(lat[-1])
     tp_lon.append(lon[-1])
     tp_time.append(rlastposupdate[-1])
-    tp_vel.append(vel[-1])
     tp_alt.append(alt[-1])
+    tp_vel.append(vel[-1])
     changepoints = np.append(changepoints, len(hdg_compensated)-1)
     
     # Merge changepoints that are too close to each other
@@ -216,7 +219,6 @@ def get_turning_points(df_ident: pd.DataFrame) -> TurnAndRise:
                 tp_time.append(rlastposupdate[t_landing])
                 tp_alt.append(alt[t_landing])
                 tp_vel.append(vel[t_landing])
-
     result_turn = {
         'tp_time': np.array(tp_time),
         'tp_lat': np.array(tp_lat),
