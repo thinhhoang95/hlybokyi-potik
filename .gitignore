@@ -4,3 +4,5 @@ data/sample/*
 *.pyc
 data/wp/*
 *.tar.gz
+._*
+__pycache__

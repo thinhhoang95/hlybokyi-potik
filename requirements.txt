@@ -1,0 +1,6 @@
+pandas
+matplotlib
+cartopy
+tqdm
+numpy
+seaborn
