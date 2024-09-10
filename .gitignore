@@ -6,3 +6,4 @@ data/wp/*
 *.tar.gz
 ._*
 __pycache__
+.pickle
