@@ -156,7 +156,47 @@ def point_to_segment_distance(point, segment_start, segment_end):
     projection = segment_start + t * segment_vec
     return distance.euclidean(point, projection)
 
-def get_horizontal_separation(seg1_from, seg1_to, seg2_from, seg2_to):
+# ==============================
+# Horizontal separation
+# ==============================
+
+def point_to_segment_distance(p, a, b):
+    """Calculate the distance from point p to line segment ab."""
+    ab = b - a
+    ap = p - a
+    projection = np.dot(ap, ab) / np.dot(ab, ab)
+    if projection <= 0:
+        return np.linalg.norm(p - a)
+    elif projection >= 1:
+        return np.linalg.norm(p - b)
+    else:
+        return np.linalg.norm(ap - projection * ab)
+
+def segment_to_segment_distance(seg1_from, seg1_to, seg2_from, seg2_to):
+    """Calculate the minimum distance between two line segments."""
+    # Check if segments intersect
+    def ccw(a, b, c):
+        return np.cross(b - a, c - a) > 0
+
+    def intersect(p1, p2, p3, p4):
+        return (ccw(p1, p3, p4) != ccw(p2, p3, p4) and
+                ccw(p1, p2, p3) != ccw(p1, p2, p4))
+
+    if intersect(seg1_from, seg1_to, seg2_from, seg2_to):
+        return 0.0
+
+    # Calculate distances from endpoints to opposite segments
+    distances = [
+        point_to_segment_distance(seg1_from, seg2_from, seg2_to),
+        point_to_segment_distance(seg1_to, seg2_from, seg2_to),
+        point_to_segment_distance(seg2_from, seg1_from, seg1_to),
+        point_to_segment_distance(seg2_to, seg1_from, seg1_to)
+    ]
+
+    return min(distances)
+
+
+def get_horizontal_separation(seg1_from, seg1_to, seg2_from, seg2_to): # a proxy to the function segment_to_segment_distance
     """Get the maximum horizontal separation between two segments. Use get_seg_from_to to convert the segments to radians.
 
     Args:
@@ -168,30 +208,7 @@ def get_horizontal_separation(seg1_from, seg1_to, seg2_from, seg2_to):
     Returns:
         float: the maximum horizontal separation
     """
-    # Convert endpoints to Cartesian coordinates
-    seg1_from_cart = to_cartesian(*seg1_from)
-    seg1_to_cart = to_cartesian(*seg1_to)
-    seg2_from_cart = to_cartesian(*seg2_from)
-    seg2_to_cart = to_cartesian(*seg2_to)
-
-    # # Calculate segment vectors
-    # seg1_vec = seg1_to_cart - seg1_from_cart
-    # seg2_vec = seg2_to_cart - seg2_from_cart
-
-    # # Normalize segment vectors
-    # seg1_unit = seg1_vec / np.linalg.norm(seg1_vec)
-    # seg2_unit = seg2_vec / np.linalg.norm(seg2_vec)
-
-    # Calculate perpendicular distances
-    distances = [
-        point_to_segment_distance(seg1_from_cart, seg2_from_cart, seg2_to_cart),
-        point_to_segment_distance(seg1_to_cart, seg2_from_cart, seg2_to_cart),
-        point_to_segment_distance(seg2_from_cart, seg1_from_cart, seg1_to_cart),
-        point_to_segment_distance(seg2_to_cart, seg1_from_cart, seg1_to_cart)
-    ]
-
-    # Return the maximum separation
-    return max(distances)
+    return segment_to_segment_distance(seg1_from, seg1_to, seg2_from, seg2_to)
 
 def get_segment_length(seg_from, seg_to):
     """Get the length of a segment. Use get_seg_from_to to convert the segment to radians.

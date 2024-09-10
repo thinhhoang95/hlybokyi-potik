@@ -85,18 +85,25 @@ def explain_similarity(seg_from_lat: np.ndarray, seg_from_lon: np.ndarray, seg_t
     contribs = {
         'tdf(psi_bar)': tdf(psi_bar, **theta['psi_bar']),
         'tdf(wO)': tdf(psi_bar, **theta['wO']),
-        'tdf(wH)': tdf(psi_bar, **theta['wH']),
         'tdf(O)': tdf(overlap, **theta['O']),
-        'tdf(H)': tdf(horizontal_separation, **theta['H']),
-        'psi_bar': psi_bar,
         'O': overlap,
-        'H': horizontal_separation
+        'tdf(wH)': tdf(psi_bar, **theta['wH']),
+        'H': horizontal_separation,
+        'tdf(H)': tdf(horizontal_separation, **theta['H'])
     }
     
-    print(contribs)
-    
+    print('==========')
+    print('psi_bar: ', tdf(psi_bar, **theta['psi_bar']))
+    print('O_term: ', tdf(psi_bar, **theta['wO']) * tdf(overlap, **theta['O']))
+    print('H_term: ', tdf(psi_bar, **theta['wH']) * tdf(horizontal_separation, **theta['H']))
+    print('==========')
+    for key in contribs:
+        print(f'{key}: {contribs[key]}')
+    print('==========')
+
     similarity = (tdf(psi_bar, **theta['psi_bar']) \
                 + tdf(psi_bar, **theta['wO']) * tdf(overlap, **theta['O']) \
                 + tdf(psi_bar, **theta['wH']) * tdf(horizontal_separation, **theta['H']))/3.
     
     print(f'Similarity between segment {i} and segment {j} is {similarity}')
+    print('==========')

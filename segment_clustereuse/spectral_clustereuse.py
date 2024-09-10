@@ -60,9 +60,9 @@ import matplotlib.pyplot as plt
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 
-def plot_segments_with_labels(seg_from_lat, seg_from_lon, seg_to_lat, seg_to_lon, cluster_labels=None, filter=None):
+def plot_segments_with_labels(seg_from_lat, seg_from_lon, seg_to_lat, seg_to_lon, cluster_labels=None, filter=None, show_labels=False):
     # Create a new figure and axis with a map projection
-    fig, ax = plt.subplots(figsize=(8, 12), subplot_kw={'projection': ccrs.PlateCarree()})
+    fig, ax = plt.subplots(figsize=(10, 12), subplot_kw={'projection': ccrs.PlateCarree()})
 
     ax.set_aspect('auto')  # This allows the aspect ratio to adjust naturally
 
@@ -89,13 +89,14 @@ def plot_segments_with_labels(seg_from_lat, seg_from_lon, seg_to_lat, seg_to_lon
             i += 1
             color = colors[np.where(unique_labels == label)[0][0]]
             ax.plot([from_lon, to_lon], [from_lat, to_lat], 
-                    color=color, linewidth=1., alpha=0.9, 
+                    color=color, linewidth=1., alpha=0.5, 
                     transform=ccrs.Geodetic())
             # Add a text label at the midpoint of the segment
-            mid_lat = (from_lat + to_lat) / 2
-            mid_lon = (from_lon + to_lon) / 2
-            label = np.where((seg_from_lat == from_lat) & (seg_from_lon == from_lon) & (seg_to_lat == to_lat) & (seg_to_lon == to_lon))[0][0]
-            ax.text(mid_lon, mid_lat, str(label), transform=ccrs.Geodetic(), fontsize=8, ha='center', va='center', color='black')
+            if show_labels:
+                mid_lat = (from_lat + to_lat) / 2
+                mid_lon = (from_lon + to_lon) / 2
+                label = np.where((seg_from_lat == from_lat) & (seg_from_lon == from_lon) & (seg_to_lat == to_lat) & (seg_to_lon == to_lon))[0][0]
+                ax.text(mid_lon, mid_lat, str(label), transform=ccrs.Geodetic(), fontsize=8, ha='center', va='center', color='black')
             # Add a marker x at the end of the segment
             ax.plot([to_lon], [to_lat], marker='x', color=color, transform=ccrs.Geodetic())
         # Show colorbar for the cluster labels
@@ -118,14 +119,15 @@ def plot_segments_with_labels(seg_from_lat, seg_from_lon, seg_to_lat, seg_to_lon
                 continue
             i += 1
             ax.plot([from_lon, to_lon], [from_lat, to_lat], 
-                    color='red', linewidth=1., alpha=0.9, 
+                    color='red', linewidth=1., alpha=0.5, 
                     transform=ccrs.Geodetic())
             # Add a text label at the midpoint of the segment
-            mid_lat = (from_lat + to_lat) / 2
-            mid_lon = (from_lon + to_lon) / 2
-            # label is the index of the segment
-            label = np.where((seg_from_lat == from_lat) & (seg_from_lon == from_lon) & (seg_to_lat == to_lat) & (seg_to_lon == to_lon))[0][0]
-            ax.text(mid_lon, mid_lat, str(label), transform=ccrs.Geodetic(), fontsize=8, ha='center', va='center', color='black')
+            if show_labels: 
+                mid_lat = (from_lat + to_lat) / 2
+                mid_lon = (from_lon + to_lon) / 2
+                # label is the index of the segment
+                label = np.where((seg_from_lat == from_lat) & (seg_from_lon == from_lon) & (seg_to_lat == to_lat) & (seg_to_lon == to_lon))[0][0]
+                ax.text(mid_lon, mid_lat, str(label), transform=ccrs.Geodetic(), fontsize=8, ha='center', va='center', color='black')
             # Add a marker x at the end of the segment
             ax.plot([to_lon], [to_lat], marker='x', color='red', transform=ccrs.Geodetic())
 
