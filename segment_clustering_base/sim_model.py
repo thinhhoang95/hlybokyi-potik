@@ -107,3 +107,55 @@ def explain_similarity(seg_from_lat: np.ndarray, seg_from_lon: np.ndarray, seg_t
     
     print(f'Similarity between segment {i} and segment {j} is {similarity}')
     print('==========')
+
+def get_similarity_matrix_polyline(seg_from_lat: np.ndarray, seg_from_lon: np.ndarray, seg_to_lat: np.ndarray, seg_to_lon: np.ndarray, polyline: np.ndarray, theta: dict) -> np.ndarray:
+    """
+    Compute the similarity matrix between segments and a polyline.
+
+    Args:
+        seg_from_lat (1D np.ndarray): the from latitude of the segments
+        seg_from_lon (1D np.ndarray): the from longitude of the segments
+        seg_to_lat (1D np.ndarray): the to latitude of the segments
+        seg_to_lon (1D np.ndarray): the to longitude of the segments
+        polyline (2D np.ndarray): the polyline, with shape (n_points, 2)
+        theta (dict): the parameters for the similarity model
+        
+    Returns:
+        np.ndarray: the similarity matrix
+    """
+
+    similarity_matrix = np.zeros((len(seg_from_lat), len(polyline))) # row: segments, col: polyline
+    for i in tqdm(range(len(seg_from_lat))): # for each segment
+        for j in range(len(polyline) - 1): # for each segment in the polyline
+
+            seg1_from = np.radians([seg_from_lat[i], seg_from_lon[i]])
+            seg1_to = np.radians([seg_to_lat[i], seg_to_lon[i]])
+            polyline_from = np.radians([polyline[j,0], polyline[j,1]])
+            polyline_to = np.radians([polyline[j+1,0], polyline[j+1,1]])
+            # if segment 1 approximates zero, the similarity is 0
+            if np.linalg.norm(seg1_from - seg1_to) < 1e-6:
+                similarity_matrix[i, j] = 0
+                continue
+            cosine_distance, flow_direction_similarity, overlap, horizontal_separation = get_all_features(seg1_from, seg1_to, polyline_from, polyline_to)
+            if flow_direction_similarity < 0.5: # For perpendicular or opposite flow directions, the similarity is 0
+                similarity_matrix[i, j] = 0
+                # print(f'Segment {i} and segment {j} are perpendicular or opposite!')
+            else:
+                psi_bar = 1 - cosine_distance
+                # Debugging: print the contribution of each term to the similarity matrix
+                contribs = {
+                    'psi_bar': tdf(psi_bar, **theta['psi_bar']),
+                    'wO': tdf(psi_bar, **theta['wO']),
+                    'wH': tdf(psi_bar, **theta['wH']),
+                    'O': tdf(overlap, **theta['O']),
+                    'H': tdf(horizontal_separation, **theta['H'])
+                }
+                # Enable for debugging
+                # print(f'Segment {i} and segment {j}')
+                # print(contribs)
+                
+                # Divided by 3 to normalize the maximum value of the similarity matrix to 1
+                similarity_matrix[i, j] = (tdf(psi_bar, **theta['psi_bar']) \
+                                            + tdf(psi_bar, **theta['wO']) * tdf(overlap, **theta['O']) \
+                                            + tdf(psi_bar, **theta['wH']) * tdf(horizontal_separation, **theta['H']))/3.
+    return similarity_matrix

@@ -15,9 +15,9 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # Add the parent of the parent directory to the Python path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from segment_clustereuse.dsa import TDFParams
-from spectral_clustereuse import get_spectral_cluster, plot_segments_with_labels, get_spectral_embedding
-from sim_model import get_similarity_matrix, theta
+from segment_clustering_base.dsa import TDFParams
+from segment_clustering_base.spectral_clustereuse import get_spectral_cluster, plot_segments_with_labels, get_spectral_embedding
+from segment_clustering_base.sim_model import get_similarity_matrix, theta
 from path_prefix import PATH_PREFIX
 
 def save_similarity_matrix(similarity_matrix):

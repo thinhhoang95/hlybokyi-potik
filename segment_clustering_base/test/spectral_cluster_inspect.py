@@ -14,7 +14,7 @@ import sys
 current_dir = os.path.dirname(os.path.abspath('__file__'))
 
 # Get the segment_clustereuse directory
-segment_clustereuse_dir = os.path.join(current_dir, 'segment_clustereuse')
+segment_clustereuse_dir = os.path.join(current_dir, 'segment_clustering_base')
 print('segment_clustereuse_dir:', segment_clustereuse_dir)
 
 # Add the parent directory to sys.path
