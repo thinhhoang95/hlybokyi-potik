@@ -7,6 +7,7 @@ import pickle
 import numpy as np
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
+import yaml
 
 
 # Add the parent directory of this python file to the search path
@@ -372,37 +373,67 @@ def create_training_data_folder():
 
 import csv
 
-def write_admitted_segments_to_file(seg_from_lat, seg_from_lon, seg_to_lat, seg_to_lon, admitted_segments_indices, polyline, filename):
-    # Specify the output CSV file name
-    flow_id = generate_random_id()
-    output_file_flow = os.path.join(PATH_PREFIX, 'data', 'c1_train', 'flows', f'{filename}_{flow_id}.csv')
+# def write_admitted_segments_to_file(seg_from_lat, seg_from_lon, seg_to_lat, seg_to_lon, admitted_segments_indices, polyline, filename):
+#     # Specify the output CSV file name
+#     flow_id = generate_random_id()
+#     output_file_flow = os.path.join(PATH_PREFIX, 'data', 'c1_train', 'flows', f'{filename}_{flow_id}.csv')
 
-    # Write the polyline data to the CSV file
-    with open(output_file_flow, 'w', newline='') as csvfile:
-        writer = csv.writer(csvfile)
+#     # Write the polyline data to the CSV file
+#     with open(output_file_flow, 'w', newline='') as csvfile:
+#         writer = csv.writer(csvfile)
         
-        # Write header
-        writer.writerow(['x', 'y'])
+#         # Write header
+#         writer.writerow(['x', 'y'])
         
-        # Write each joint (row) of the polyline
-        for joint in polyline:
-            writer.writerow(joint)
+#         # Write each joint (row) of the polyline
+#         for joint in polyline:
+#             writer.writerow(joint)
 
-    # Write the admitted segments to a file
-    output_file_segments = os.path.join(PATH_PREFIX, 'data', 'c1_train', 'segments', f'{filename}_{flow_id}.csv')
-    with open(output_file_segments, 'w', newline='') as csvfile:
-        writer = csv.writer(csvfile)
+#     # Write the admitted segments to a file
+#     output_file_segments = os.path.join(PATH_PREFIX, 'data', 'c1_train', 'segments', f'{filename}_{flow_id}.csv')
+#     with open(output_file_segments, 'w', newline='') as csvfile:
+#         writer = csv.writer(csvfile)
         
-        # Write header
-        writer.writerow(['from_lat', 'from_lon', 'to_lat', 'to_lon'])
+#         # Write header
+#         writer.writerow(['from_lat', 'from_lon', 'to_lat', 'to_lon'])
         
-        # Write each segment (row)
-        for i in admitted_segments_indices:
-            writer.writerow([seg_from_lat[i], seg_from_lon[i], seg_to_lat[i], seg_to_lon[i]])
+#         # Write each segment (row)
+#         for i in admitted_segments_indices:
+#             writer.writerow([seg_from_lat[i], seg_from_lon[i], seg_to_lat[i], seg_to_lon[i]])
 
-    print(f"Wrote admitted segments to {output_file_segments}")
+#     print(f"Wrote admitted segments to {output_file_segments}")
 
-def build_refined_graph_from_base_model()
+def numpy_to_list(obj):
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif isinstance(obj, np.integer):
+        return int(obj)
+    elif isinstance(obj, np.floating):
+        return float(obj)
+    elif isinstance(obj, dict):
+        return {k: numpy_to_list(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [numpy_to_list(i) for i in obj]
+    else:
+        return obj
+
+def write_label_data_to_yaml_file(filename: str, admitted_indices: list, labelled_indices: list, label: list):
+
+    # Specify the output YAML file name
+    output_file = os.path.join(PATH_PREFIX, 'data', 'c1_train', 'flows', f'{filename}.yaml')
+
+    # Write the data to the YAML file
+    with open(output_file, 'w') as yaml_file:
+        yaml.dump({
+            'admitted_indices': numpy_to_list(admitted_indices),
+            'labelled_indices': numpy_to_list(labelled_indices),
+            'label': numpy_to_list(label)
+        }, yaml_file)
+
+    print(f"Wrote label data to {output_file}")
+
+def subtract_lists(list1, list2):
+    return [item for item in list1 if item not in set(list2)]
 
 from segment_clustering_base.spectral_clustereuse import plot_segments_with_labels
 
@@ -439,11 +470,22 @@ if __name__ == '__main__':
         write_polylines_to_file(polylines, filename) # polyline is a list of (lon, lat) tuples
 
     print('==========================================')
-    print('2. Segment membership refinement')
+    print('2. Segment Annotation')
     print('==========================================')
     EPSILON = 0.5 # degrees latitude or longitude
     RESAMPLE = True
-    N_RESAMPLE = 50
+    N_RESAMPLE = 100
+
+    # To store all the indices of the segments seen by the user
+    admitted_indices = []
+    # To store the indices of the segments labelled
+    labelled_indices = []
+    label = []
+    # To store all the relegated segments by the user
+    relegated_indices = []
+
+    flow_id = 0
+    
 
     for i_flow in range(len(polylines)):
         print(f'Processing Flow {i_flow + 1}/{len(polylines)}')
@@ -480,7 +522,8 @@ if __name__ == '__main__':
 
         # Handling the directionality of the flow: we compute the similarity matrix of all segments against two directions of the polyline
         for direction in [0, 1]:
-            print(f'Flow {i_flow + 1}/{len(polylines)}: direction {direction + 1}/2')
+            flow_id += 1
+            print(f'Flow {i_flow + 1}/{len(polylines)}: direction {direction + 1}/2. Flow ID: {flow_id}')
             if direction == 0:
                 m_polyline = polylines[i_flow]
             else:
@@ -497,7 +540,7 @@ if __name__ == '__main__':
             # Flow refinement
             print(f'Seeking user feedback on the flow... Total segments: {len(neighbor_indices_d)}. Press "s" to skip this flow, "z" to undo the last action.')
 
-            # Open the flow refinement interface
+            # Open the flow refinement interface, relegated_segments is a subset of neighbor_indices_d, not counting from 0
             relegated_segments = flow_refinement_interface(seg_from_lat, seg_from_lon, seg_to_lat, seg_to_lon, polylines[i_flow], neighbor_indices_d)
             
             if relegated_segments is None:
@@ -506,9 +549,17 @@ if __name__ == '__main__':
                 continue 
 
             print(f'Relegated {len(relegated_segments)} segments out of {len(neighbor_indices_d)}')
-            print(f'Admitted {len(neighbor_indices_d) - len(relegated_segments)} segments')
+            print(f'Labelled {len(neighbor_indices_d) - len(relegated_segments)} segments')
 
-            # Write the admitted segments to a file
-            write_admitted_segments_to_file(seg_from_lat, seg_from_lon, seg_to_lat, seg_to_lon, neighbor_indices_d, polylines[i_flow], filename)
+            
+            admitted_indices.extend(neighbor_indices_d)
+            labelled_indices_for_this_flow = subtract_lists(neighbor_indices_d, relegated_segments) # relegated_segments is a subset of neighbor_indices_d, not counting from 0
+            labelled_indices.extend(labelled_indices_for_this_flow)
+            label.extend([flow_id] * len(labelled_indices_for_this_flow))
+            relegated_indices.extend(relegated_segments)
 
-    print('==========================================')
+        # Write the admitted segments to a file
+        write_label_data_to_yaml_file(filename, admitted_indices, labelled_indices, label)
+
+    print('Data Annotation Completed')
+    print('==========================================') # end of flow labeling
