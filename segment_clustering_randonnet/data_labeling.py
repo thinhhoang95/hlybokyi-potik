@@ -70,7 +70,7 @@ def load_segments():
     filename = filename.replace('.segments', '')
     return seg_from_lat, seg_from_lon, seg_to_lat, seg_to_lon, filename
 
-def flow_specification_interface(seg_from_lat, seg_from_lon, seg_to_lat, seg_to_lon, polylines, show_labels=False):
+def flow_specification_interface(seg_from_lat, seg_from_lon, seg_to_lat, seg_to_lon, polylines, show_labels=False, filter=None):
     # Create a new figure and axis with a map projection
     fig, ax = plt.subplots(figsize=(4, 6), subplot_kw={'projection': ccrs.PlateCarree()})
     ax.set_aspect('auto')  # This allows the aspect ratio to adjust naturally
@@ -84,7 +84,10 @@ def flow_specification_interface(seg_from_lat, seg_from_lon, seg_to_lat, seg_to_
     # Set the extent of the map to cover Europe
     ax.set_extent([-10, 40, 28, 75], crs=ccrs.PlateCarree())
 
+    i = 0
     for from_lat, from_lon, to_lat, to_lon in zip(seg_from_lat, seg_from_lon, seg_to_lat, seg_to_lon):
+        if filter is not None and i not in filter:
+            continue # Skip the segment because it is not in the filter
         ax.plot([from_lon, to_lon], [from_lat, to_lat],
                 color='red', linewidth=1., alpha=0.2,
                 transform=ccrs.Geodetic())
@@ -303,6 +306,8 @@ def flow_refinement_interface(seg_from_lat, seg_from_lon, seg_to_lat, seg_to_lon
     # Add gridlines
     ax.gridlines(draw_labels=True, dms=True, x_inline=False, y_inline=False)
 
+    again_flag = False # to indicate if the user wants to sample more segments to label for this flow
+
     def on_click(event):
         if event.inaxes == ax:
             for i, (line, marker) in enumerate(zip(segment_lines, segment_markers)):
@@ -315,7 +320,7 @@ def flow_refinement_interface(seg_from_lat, seg_from_lon, seg_to_lat, seg_to_lon
                     break
 
     def on_key(event):
-        nonlocal relegated_segments  # Add this line to access relegated_segments
+        nonlocal relegated_segments, again_flag  # Add this line to access relegated_segments
         if event.key == 'z' and action_history:
             action, index = action_history.pop()
             if action == 'remove':
@@ -326,13 +331,15 @@ def flow_refinement_interface(seg_from_lat, seg_from_lon, seg_to_lat, seg_to_lon
         elif event.key == 's':
             plt.close(fig)
             relegated_segments = None  # Set relegated_segments to None
+        elif event.key == 'a':
+            again_flag = True # the user wants to sample more segments to label for this flow
 
     fig.canvas.mpl_connect('button_press_event', on_click)
     fig.canvas.mpl_connect('key_press_event', on_key)
 
     plt.show()
 
-    return relegated_segments
+    return relegated_segments, again_flag
 
 import random
 import string
@@ -460,7 +467,16 @@ if __name__ == '__main__':
         command = '' 
         polylines = []
         while command != 'q':
-            polyline = flow_specification_interface(seg_from_lat, seg_from_lon, seg_to_lat, seg_to_lon, polylines)
+            # If there are too many segments, we will sample a subset of them
+            MAX_SEGMENTS = 2000
+            if len(seg_from_lat) > MAX_SEGMENTS:
+                print(f'Sampling {MAX_SEGMENTS} segments from the {len(seg_from_lat)} segments')
+                np.random.seed(42)
+                sampled_indices = np.random.choice(len(seg_from_lat), MAX_SEGMENTS, replace=False)
+            else:
+                sampled_indices = None
+                
+            polyline = flow_specification_interface(seg_from_lat, seg_from_lon, seg_to_lat, seg_to_lon, polylines, filter=sampled_indices)
             polylines.append(polyline)
             command = input("Press 'q' to quit, 'c' to continue: ")
 
@@ -488,75 +504,87 @@ if __name__ == '__main__':
     
 
     for i_flow in range(len(polylines)):
-        print(f'Processing Flow {i_flow + 1}/{len(polylines)}')
-        print('------------------------------------------')
-        
-        # Resample the polyline
-        polylines_resampled = resample_polyline(polylines[i_flow], 0.5)
-        # Obtain the epsilon-neighborhood segments
-        neighbor_indices = get_epsilon_neighborhood(seg_from_lat, seg_from_lon, seg_to_lat, seg_to_lon, polylines_resampled, EPSILON)
-        print(f'Found {len(neighbor_indices)} segments within {EPSILON} degrees of the polyline')
-        neighbor_indices = get_long_enough_segments(seg_from_lat, seg_from_lon, seg_to_lat, seg_to_lon, 0.5, neighbor_indices)
-        print(f'Found {len(neighbor_indices)} segments at least 0.5 degrees long')
+        user_wants_to_proceed = True
+        while user_wants_to_proceed: 
+            print(f'Processing Flow {i_flow + 1}/{len(polylines)}')
+            print('------------------------------------------')
+            
+            # Resample the polyline
+            polylines_resampled = resample_polyline(polylines[i_flow], 0.5)
+            # Obtain the epsilon-neighborhood segments
+            neighbor_indices = get_epsilon_neighborhood(seg_from_lat, seg_from_lon, seg_to_lat, seg_to_lon, polylines_resampled, EPSILON)
+            print(f'Found {len(neighbor_indices)} segments within {EPSILON} degrees of the polyline')
+            neighbor_indices = get_long_enough_segments(seg_from_lat, seg_from_lon, seg_to_lat, seg_to_lon, 0.5, neighbor_indices)
+            print(f'Found {len(neighbor_indices)} segments at least 0.5 degrees long')
 
-        # Plot the segments
-        # plot_segments_with_labels(seg_from_lat, seg_from_lon, seg_to_lat, seg_to_lon, filter=neighbor_indices)
+            # Plot the segments
+            # plot_segments_with_labels(seg_from_lat, seg_from_lon, seg_to_lat, seg_to_lon, filter=neighbor_indices)
 
-        # Resample the indices if the number of admitted segments is too large
-        if len(neighbor_indices) > N_RESAMPLE and RESAMPLE:
-            # Only keep N_RESAMPLE indices from the neighbor_indices
-            np.random.seed(42)
-            neighbor_indices = np.random.choice(neighbor_indices, N_RESAMPLE, replace=False)
-            print(f'Resampled to {len(neighbor_indices)} indices')
+            # This list maintains the indices of the segments that have not been admitted yet
+            indices_pool = subtract_lists(neighbor_indices.tolist(), admitted_indices)
+            indices_pool = np.array(indices_pool)
 
-        # ==============================
-        # Base model TDF parameters 
-        # Parameters for the similarity model
-        theta = {
-            'psi_bar': TDFParams(tau=0.1, alpha=15., x0=1.),  # psi_bar = 1 - psi, where psi is the cosine similarity
-            'wO': TDFParams(tau=0.1, alpha=15., x0=1.),  # weight of overlap
-            'wH': TDFParams(tau=0.1, alpha=15., x0=1.),   # weight of horizontal separation
-            'O': TDFParams(tau=0.1, alpha=15., x0=1.),   # overlap
-            'H': TDFParams(tau=0.1, alpha=15., x0=1.)   # horizontal separation
-        }
-
-        # Handling the directionality of the flow: we compute the similarity matrix of all segments against two directions of the polyline
-        for direction in [0, 1]:
-            flow_id += 1
-            print(f'Flow {i_flow + 1}/{len(polylines)}: direction {direction + 1}/2. Flow ID: {flow_id}')
-            if direction == 0:
-                m_polyline = polylines[i_flow]
-            else:
-                m_polyline = polylines[i_flow][::-1] # reverse the polyline
-            m_polyline = np.array(m_polyline) # convert to numpy array
-            similarity_matrix_polyline = get_similarity_matrix_polyline(seg_from_lat[neighbor_indices], seg_from_lon[neighbor_indices], seg_to_lat[neighbor_indices], seg_to_lon[neighbor_indices], m_polyline, theta)
-
-            # Find the indices of the rows of similarity_matrix_polyline that are all zeros
-            zero_rows_indices = np.where(np.all(similarity_matrix_polyline == 0, axis=1))[0]
-            neighbor_indices_d = np.delete(neighbor_indices, zero_rows_indices) # the indices of the segments that are not aligned with the polyline's direction
-            print(f'Admitted {len(neighbor_indices_d)} segments for this direction')
+            # Resample the indices if the number of admitted segments is too large
+            if len(indices_pool) > N_RESAMPLE and RESAMPLE:
+                # Only keep N_RESAMPLE indices from the neighbor_indices
+                np.random.seed(42)
+                neighbor_indices = np.random.choice(indices_pool, N_RESAMPLE, replace=False)
+                print(f'Resampled to {len(neighbor_indices)} indices')
 
             # ==============================
-            # Flow refinement
-            print(f'Seeking user feedback on the flow... Total segments: {len(neighbor_indices_d)}. Press "s" to skip this flow, "z" to undo the last action.')
+            # Base model TDF parameters 
+            # Parameters for the similarity model   
+            theta = {
+                'psi_bar': TDFParams(tau=0.1, alpha=15., x0=1.),  # psi_bar = 1 - psi, where psi is the cosine similarity
+                'wO': TDFParams(tau=0.1, alpha=15., x0=1.),  # weight of overlap
+                'wH': TDFParams(tau=0.1, alpha=15., x0=1.),   # weight of horizontal separation
+                'O': TDFParams(tau=0.1, alpha=15., x0=1.),   # overlap
+                'H': TDFParams(tau=0.1, alpha=15., x0=1.)   # horizontal separation
+            }
 
-            # Open the flow refinement interface, relegated_segments is a subset of neighbor_indices_d, not counting from 0
-            relegated_segments = flow_refinement_interface(seg_from_lat, seg_from_lon, seg_to_lat, seg_to_lon, polylines[i_flow], neighbor_indices_d)
-            
-            if relegated_segments is None:
-                # This direction should be skipped
-                print(f'Skipping flow {i_flow + 1}/{len(polylines)}, direction {direction + 1}/2 due to user action')
-                continue 
+            # Handling the directionality of the flow: we compute the similarity matrix of all segments against two directions of the polyline
+            for direction in [0, 1]:
+                flow_id += 1
+                print(f'Flow {i_flow + 1}/{len(polylines)}: direction {direction + 1}/2. Flow ID: {flow_id}')
+                if direction == 0:
+                    m_polyline = polylines[i_flow]
+                else:
+                    m_polyline = polylines[i_flow][::-1] # reverse the polyline
+                m_polyline = np.array(m_polyline) # convert to numpy array
+                similarity_matrix_polyline = get_similarity_matrix_polyline(seg_from_lat[neighbor_indices], seg_from_lon[neighbor_indices], seg_to_lat[neighbor_indices], seg_to_lon[neighbor_indices], m_polyline, theta)
 
-            print(f'Relegated {len(relegated_segments)} segments out of {len(neighbor_indices_d)}')
-            print(f'Labelled {len(neighbor_indices_d) - len(relegated_segments)} segments')
+                # Find the indices of the rows of similarity_matrix_polyline that are all zeros
+                zero_rows_indices = np.where(np.all(similarity_matrix_polyline == 0, axis=1))[0]
+                neighbor_indices_d = np.delete(neighbor_indices, zero_rows_indices) # the indices of the segments that are not aligned with the polyline's direction
+                print(f'Admitted {len(neighbor_indices_d)} segments for this direction')
 
-            
-            admitted_indices.extend(neighbor_indices_d)
-            labelled_indices_for_this_flow = subtract_lists(neighbor_indices_d, relegated_segments) # relegated_segments is a subset of neighbor_indices_d, not counting from 0
-            labelled_indices.extend(labelled_indices_for_this_flow)
-            label.extend([flow_id] * len(labelled_indices_for_this_flow))
-            relegated_indices.extend(relegated_segments)
+                # ==============================
+                # Flow refinement
+                print(f'Seeking user feedback on the flow... Total segments: {len(neighbor_indices_d)}. Press "s" to skip this flow, "z" to undo the last action.')
+
+                # Open the flow refinement interface, relegated_segments is a subset of neighbor_indices_d, not counting from 0
+                relegated_segments, again_flag = flow_refinement_interface(seg_from_lat, seg_from_lon, seg_to_lat, seg_to_lon, polylines[i_flow], neighbor_indices_d)
+                
+                if relegated_segments is None:
+                    # This direction should be skipped
+                    print(f'Skipping flow {i_flow + 1}/{len(polylines)}, direction {direction + 1}/2 due to user action')
+                    continue
+
+                print(f'Relegated {len(relegated_segments)} segments out of {len(neighbor_indices_d)}')
+                print(f'Labelled {len(neighbor_indices_d) - len(relegated_segments)} segments')
+
+                
+                admitted_indices.extend(neighbor_indices_d)
+                labelled_indices_for_this_flow = subtract_lists(neighbor_indices_d, relegated_segments) # relegated_segments is a subset of neighbor_indices_d, not counting from 0
+                labelled_indices.extend(labelled_indices_for_this_flow)
+                label.extend([flow_id] * len(labelled_indices_for_this_flow))
+                relegated_indices.extend(relegated_segments)
+
+                if not again_flag:
+                    print('Will NOT sample another set of segments for this flow!')
+                    user_wants_to_proceed = False 
+                else:
+                    print('Will sample another set of segments for this flow!')
 
         # Write the admitted segments to a file
         write_label_data_to_yaml_file(filename, admitted_indices, labelled_indices, label)
