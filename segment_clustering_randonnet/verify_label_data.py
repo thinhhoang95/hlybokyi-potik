@@ -41,7 +41,8 @@ if __name__ == '__main__':
     from spectral_clustereuse import plot_segments_with_labels # type:ignore
     
     for i in range(len(polylines)):
-        m_polyline = np.array(polylines[i])
-        labls_i = np.where(labls == (i * 2 + 1))[0]
-        labelled_indices_i = labelled_indices[labls_i]
-        plot_segments_with_labels(seg_from_lat, seg_from_lon, seg_to_lat, seg_to_lon, filter=labelled_indices_i, show_labels=True, polyline=m_polyline)
+        for d in range(2):
+            m_polyline = np.array(polylines[i])
+            labls_i = np.where(labls == (i * 2 + d + 1))[0]
+            labelled_indices_i = labelled_indices[labls_i]
+            plot_segments_with_labels(seg_from_lat, seg_from_lon, seg_to_lat, seg_to_lon, filter=labelled_indices_i, show_labels=False, polyline=m_polyline)

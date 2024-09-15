@@ -268,7 +268,7 @@ def get_epsilon_neighborhood(seg_from_lat, seg_from_lon, seg_to_lat, seg_to_lon,
 
 
 
-def flow_refinement_interface(seg_from_lat, seg_from_lon, seg_to_lat, seg_to_lon, polyline, neighbor_indices):
+def flow_refinement_interface(seg_from_lat, seg_from_lon, seg_to_lat, seg_to_lon, polyline, neighbor_indices, did_we_resample):
     # Create a new figure and axis with a map projection
     fig, ax = plt.subplots(figsize=(4, 6), subplot_kw={'projection': ccrs.PlateCarree()})
     ax.set_aspect('auto')  # This allows the aspect ratio to adjust naturally
@@ -339,13 +339,17 @@ def flow_refinement_interface(seg_from_lat, seg_from_lon, seg_to_lat, seg_to_lon
                 segment_markers[index].set_visible(True)
                 relegated_segments.remove(neighbor_indices[index])
                 fig.canvas.draw()
-        elif event.key == 's':
+        elif event.key == 'k':
             plt.close(fig)
             relegated_segments = None  # Set relegated_segments to None
+            again_flag = False
+            return relegated_segments, again_flag
         elif event.key == 'a':
-            plt.close(fig)
-            again_flag = True # the user wants to sample more segments to label for this flow
-
+            if did_we_resample:
+                plt.close(fig)
+                again_flag = True # the user wants to sample more segments to label for this flow
+                return relegated_segments, again_flag
+        
     fig.canvas.mpl_connect('button_press_event', on_click)
     fig.canvas.mpl_connect('key_press_event', on_key)
 
@@ -550,6 +554,7 @@ if __name__ == '__main__':
             attempts = 0
             flow_id += 1
             while user_wants_to_proceed:
+                print('==========================================')
                 print(f'Flow {i_flow + 1}/{len(polylines)}: direction {direction + 1}/2. Flow ID: {flow_id}. Attempts: {attempts + 1}')
                 
                 # Obtain the epsilon-neighborhood segments
@@ -564,6 +569,9 @@ if __name__ == '__main__':
                 # This list maintains the indices of the segments that have not been admitted yet
                 indices_pool = subtract_lists(neighbor_indices.tolist(), admitted_indices)
                 indices_pool = np.array(indices_pool)
+                
+                print(f'Size of indices pool: {len(indices_pool)}')
+                print(f'Size of admitted indices: {len(admitted_indices)}')
 
                 did_we_resample = False 
 
@@ -574,6 +582,8 @@ if __name__ == '__main__':
                     neighbor_indices = np.random.choice(indices_pool, N_RESAMPLE, replace=False)
                     print(f'Resampled to {len(neighbor_indices)} indices')
                     did_we_resample = True
+                else:
+                    print('WARNING: Resampling was skipped because the number of segments is not too large')
 
                 if direction == 0:
                     m_polyline = polylines[i_flow]
@@ -590,31 +600,40 @@ if __name__ == '__main__':
                 # plot_segments_with_labels(seg_from_lat, seg_from_lon, seg_to_lat, seg_to_lon, filter=neighbor_indices_zero, show_labels=True, polyline=m_polyline)
                 neighbor_indices_d = np.delete(neighbor_indices, zero_rows_indices) # the indices of the segments that are not aligned with the polyline's direction
                 print(f'Admitted {len(neighbor_indices_d)} segments for this direction after similarity matrix filtering')
-
+                admitted_indices.extend(neighbor_indices_d)
+                
+                # print(f'Admitted indices: {admitted_indices}')
+                # print(f'Neighbor indices d: {neighbor_indices_d}')
+                
                 # ==============================
                 # Flow refinement
 
                 if not did_we_resample:
                     print('WARNING: Do not use "a" to resample the segments since there are not too many segments to be annotated')
                     
-                print(f'Seeking user feedback on the flow... Total segments: {len(neighbor_indices_d)}. Press "s" to skip this flow, "z" to undo the last action, "a" for another set of segments.')
+                print(f'Seeking user feedback on the flow... Total segments: {len(neighbor_indices_d)}.')
+                if did_we_resample:
+                    print('Press "k" to skip this flow, "z" to undo the last action, "a" for another set of segments.')
+                else:
+                    print('Press "k" to skip this flow, "z" to undo the last action.')
 
                 # Open the flow refinement interface, relegated_segments is a subset of neighbor_indices_d, not counting from 0
-                relegated_segments, again_flag = flow_refinement_interface(seg_from_lat, seg_from_lon, seg_to_lat, seg_to_lon, polylines[i_flow], neighbor_indices_d)
-                
-                # Unique-nize relegated segments
-                relegated_segments = np.unique(np.array(relegated_segments)).tolist()
+                relegated_segments, again_flag = flow_refinement_interface(seg_from_lat, seg_from_lon, seg_to_lat, seg_to_lon, m_polyline, neighbor_indices_d, did_we_resample)
 
                 if relegated_segments is None:
                     # This direction should be skipped
                     print(f'Skipping flow {i_flow + 1}/{len(polylines)}, direction {direction + 1}/2 due to user action')
+                    user_wants_to_proceed = False
                     continue
+                
+                # Unique-nize relegated segments
+                relegated_segments = np.unique(np.array(relegated_segments)).tolist()
 
                 print(f'Relegated {len(relegated_segments)} segments out of {len(neighbor_indices_d)}')
                 print(f'Labelled {len(neighbor_indices_d) - len(relegated_segments)} segments')
 
                 
-                admitted_indices.extend(neighbor_indices_d)
+                
                 labelled_indices_for_this_flow = subtract_lists(neighbor_indices_d, relegated_segments) # relegated_segments is a subset of neighbor_indices_d, not counting from 0
                 labelled_indices.extend(labelled_indices_for_this_flow)
                 label.extend([flow_id] * len(labelled_indices_for_this_flow))
@@ -631,5 +650,6 @@ if __name__ == '__main__':
         # Write the admitted segments to a file
         write_label_data_to_yaml_file(filename, admitted_indices, labelled_indices, label)
 
+    print('==========================================')
     print('Data Annotation Completed')
     print('==========================================') # end of flow labeling
