@@ -97,6 +97,8 @@ def main():
     
     # List all CSV files in the directory
     csv_files = [f for f in os.listdir(csv_dir) if f.endswith('.csv')]
+    # But not the ones with a dot in the beginning
+    csv_files = [f for f in csv_files if not f.startswith('.')]
     
     # Determine the number of processes to use (e.g., number of CPU cores)
     num_processes = cpu_count()

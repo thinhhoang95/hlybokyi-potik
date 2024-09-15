@@ -60,7 +60,7 @@ import matplotlib.pyplot as plt
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 
-def plot_segments_with_labels(seg_from_lat, seg_from_lon, seg_to_lat, seg_to_lon, cluster_labels=None, filter=None, show_labels=False):
+def plot_segments_with_labels(seg_from_lat, seg_from_lon, seg_to_lat, seg_to_lon, cluster_labels=None, filter=None, show_labels=False, polyline = None):
     # Create a new figure and axis with a map projection
     fig, ax = plt.subplots(figsize=(6, 8), subplot_kw={'projection': ccrs.PlateCarree()})
 
@@ -79,18 +79,22 @@ def plot_segments_with_labels(seg_from_lat, seg_from_lon, seg_to_lat, seg_to_lon
     unique_labels = np.unique(cluster_labels)
     colors = plt.cm.rainbow(np.linspace(0, 1, len(unique_labels)))
 
+    if filter is not None:
+        seg_from_latf = seg_from_lat[filter]
+        seg_from_lonf = seg_from_lon[filter]
+        seg_to_latf = seg_to_lat[filter]
+        seg_to_lonf = seg_to_lon[filter]
+        if cluster_labels is not None:
+            cluster_labelsf = cluster_labels[filter]
+
     # Plot the segments
-    i: int = 0
     if cluster_labels is not None:  
-        for from_lat, from_lon, to_lat, to_lon, label in zip(seg_from_lat, seg_from_lon, seg_to_lat, seg_to_lon, cluster_labels):
-            if filter is not None and i not in filter:
-                i += 1
-                continue
-            i += 1
+        for from_lat, from_lon, to_lat, to_lon, label in zip(seg_from_latf, seg_from_lonf, seg_to_latf, seg_to_lonf, cluster_labelsf):
             color = colors[np.where(unique_labels == label)[0][0]]
             ax.plot([from_lon, to_lon], [from_lat, to_lat], 
                     color=color, linewidth=1., alpha=0.2, 
                     transform=ccrs.Geodetic())
+            # print(f'Segment {from_lat, from_lon, to_lat, to_lon, label}')
             # Add a text label at the midpoint of the segment
             if show_labels:
                 mid_lat = (from_lat + to_lat) / 2
@@ -112,15 +116,11 @@ def plot_segments_with_labels(seg_from_lat, seg_from_lon, seg_to_lat, seg_to_lon
         cbar.set_ticks(unique_labels)
         cbar.set_ticklabels(unique_labels)
     else: # no color since no cluster labels specified / no cluster_label
-        i: int = 0
-        for from_lat, from_lon, to_lat, to_lon in zip(seg_from_lat, seg_from_lon, seg_to_lat, seg_to_lon):
-            if filter is not None and i not in filter:
-                i += 1
-                continue
-            i += 1
+        for from_lat, from_lon, to_lat, to_lon in zip(seg_from_latf, seg_from_lonf, seg_to_latf, seg_to_lonf):
             ax.plot([from_lon, to_lon], [from_lat, to_lat], 
                     color='red', linewidth=1., alpha=0.2, 
                     transform=ccrs.Geodetic())
+            # print(f'Segment {from_lat, from_lon, to_lat, to_lon}')
             # Add a text label at the midpoint of the segment
             if show_labels: 
                 mid_lat = (from_lat + to_lat) / 2
@@ -130,6 +130,13 @@ def plot_segments_with_labels(seg_from_lat, seg_from_lon, seg_to_lat, seg_to_lon
                 ax.text(mid_lon, mid_lat, str(label), transform=ccrs.Geodetic(), fontsize=8, ha='center', va='center', color='black')
             # Add a marker x at the end of the segment
             ax.plot([to_lon], [to_lat], marker='x', color='red', transform=ccrs.Geodetic(), alpha=0.2)
+
+    if polyline is not None:
+        for i in range(polyline.shape[0]-1):
+            plt.plot([polyline[i,0], polyline[i+1,0]], [polyline[i,1], polyline[i+1,1]], color='green', transform=ccrs.Geodetic())
+
+        # Add a marker x at the end of the polyline
+        ax.plot([polyline[-1,0]], [polyline[-1,1]], marker='x', color='green', transform=ccrs.Geodetic(), alpha=1, markersize=10)
 
     # Add gridlines
     ax.gridlines(draw_labels=True, dms=True, x_inline=False, y_inline=False)

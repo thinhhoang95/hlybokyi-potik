@@ -162,6 +162,14 @@ def write_polylines_to_file(polylines, filename):
 
 
 def load_polylines_from_file(filename): # filename without .polylines.pickle
+    """Return the polylines from the file.
+
+    Args:
+        filename (str): the filename of the polylines (without the .polylines.pickle extension)
+
+    Returns:
+        np.ndarray: the polylines as a 2D numpy array (first column is LONGITUDE, second column is LATITUDE)
+    """
     filename = filename + '.polylines.pickle'
     flows_folder = os.path.join(PATH_PREFIX, 'data', 'flows')
     with open(os.path.join(flows_folder, filename), 'rb') as f:
@@ -302,6 +310,8 @@ def flow_refinement_interface(seg_from_lat, seg_from_lon, seg_to_lat, seg_to_lon
     # Draw the polyline with green color on top
     x, y = zip(*polyline)
     ax.plot(x, y, 'g-', linewidth=2, transform=ccrs.PlateCarree(), alpha=0.2)
+    # Add a marker x at the end of the polyline
+    ax.plot([polyline[-1][0]], [polyline[-1][1]], marker='x', color='green', transform=ccrs.Geodetic(), alpha=1, markersize=10) # lon, lat; NOT lat, lon
 
     # Add gridlines
     ax.gridlines(draw_labels=True, dms=True, x_inline=False, y_inline=False)
@@ -312,9 +322,10 @@ def flow_refinement_interface(seg_from_lat, seg_from_lon, seg_to_lat, seg_to_lon
         if event.inaxes == ax:
             for i, (line, marker) in enumerate(zip(segment_lines, segment_markers)):
                 if line.contains(event)[0] or marker.contains(event)[0]:
-                    line.set_visible(False)
-                    marker.set_visible(False)
-                    relegated_segments.append(neighbor_indices[i])
+                    if neighbor_indices[i] not in relegated_segments:
+                        relegated_segments.append(neighbor_indices[i])
+                        line.set_visible(False)
+                        marker.set_visible(False)
                     action_history.append(('remove', i))
                     fig.canvas.draw()
                     break
@@ -332,6 +343,7 @@ def flow_refinement_interface(seg_from_lat, seg_from_lon, seg_to_lat, seg_to_lon
             plt.close(fig)
             relegated_segments = None  # Set relegated_segments to None
         elif event.key == 'a':
+            plt.close(fig)
             again_flag = True # the user wants to sample more segments to label for this flow
 
     fig.canvas.mpl_connect('button_press_event', on_click)
@@ -442,6 +454,17 @@ def write_label_data_to_yaml_file(filename: str, admitted_indices: list, labelle
 def subtract_lists(list1, list2):
     return [item for item in list1 if item not in set(list2)]
 
+def inspect_polyline(polyline):
+    """
+    Inspect the polyline by plotting it on a map.
+    """
+    plt.scatter(polyline[:, 0], polyline[:, 1])
+    # Add a label to indicate the order of the points
+    for i, (x, y) in enumerate(polyline):
+        plt.text(x, y, str(i), fontsize=10, ha='right', va='bottom')
+    plt.show()
+    
+
 from segment_clustering_base.spectral_clustereuse import plot_segments_with_labels
 
 if __name__ == '__main__':
@@ -488,7 +511,7 @@ if __name__ == '__main__':
     print('==========================================')
     print('2. Segment Annotation')
     print('==========================================')
-    EPSILON = 0.5 # degrees latitude or longitude
+    EPSILON = 1. # degrees latitude or longitude
     RESAMPLE = True
     N_RESAMPLE = 100
 
@@ -504,67 +527,84 @@ if __name__ == '__main__':
     
 
     for i_flow in range(len(polylines)):
-        user_wants_to_proceed = True
-        while user_wants_to_proceed: 
-            print(f'Processing Flow {i_flow + 1}/{len(polylines)}')
-            print('------------------------------------------')
-            
-            # Resample the polyline
-            polylines_resampled = resample_polyline(polylines[i_flow], 0.5)
-            # Obtain the epsilon-neighborhood segments
-            neighbor_indices = get_epsilon_neighborhood(seg_from_lat, seg_from_lon, seg_to_lat, seg_to_lon, polylines_resampled, EPSILON)
-            print(f'Found {len(neighbor_indices)} segments within {EPSILON} degrees of the polyline')
-            neighbor_indices = get_long_enough_segments(seg_from_lat, seg_from_lon, seg_to_lat, seg_to_lon, 0.5, neighbor_indices)
-            print(f'Found {len(neighbor_indices)} segments at least 0.5 degrees long')
+        print(f'Processing Flow {i_flow + 1}/{len(polylines)}.')
+        print('------------------------------------------')
+        
+        # Resample the polyline
+        polylines_resampled = resample_polyline(polylines[i_flow], 0.5)
+        
+        # ==============================
+        # Base model TDF parameters 
+        # Parameters for the similarity model   
+        theta = {
+            'psi_bar': TDFParams(tau=0.1, alpha=15., x0=1.),  # psi_bar = 1 - psi, where psi is the cosine similarity
+            'wO': TDFParams(tau=0.1, alpha=15., x0=1.),  # weight of overlap
+            'wH': TDFParams(tau=0.1, alpha=15., x0=1.),   # weight of horizontal separation
+            'O': TDFParams(tau=0.1, alpha=15., x0=1.),   # overlap
+            'H': TDFParams(tau=0.1, alpha=15., x0=1.)   # horizontal separation
+        }
 
-            # Plot the segments
-            # plot_segments_with_labels(seg_from_lat, seg_from_lon, seg_to_lat, seg_to_lon, filter=neighbor_indices)
+        # Handling the directionality of the flow: we compute the similarity matrix of all segments against two directions of the polyline
+        for direction in [0, 1]:
+            user_wants_to_proceed = True
+            attempts = 0
+            flow_id += 1
+            while user_wants_to_proceed:
+                print(f'Flow {i_flow + 1}/{len(polylines)}: direction {direction + 1}/2. Flow ID: {flow_id}. Attempts: {attempts + 1}')
+                
+                # Obtain the epsilon-neighborhood segments
+                neighbor_indices = get_epsilon_neighborhood(seg_from_lat, seg_from_lon, seg_to_lat, seg_to_lon, polylines_resampled, EPSILON)
+                print(f'Found {len(neighbor_indices)} segments within {EPSILON} degrees of the polyline')
+                neighbor_indices = get_long_enough_segments(seg_from_lat, seg_from_lon, seg_to_lat, seg_to_lon, 0.5, neighbor_indices)
+                print(f'Found {len(neighbor_indices)} segments at least {EPSILON} degrees long')
 
-            # This list maintains the indices of the segments that have not been admitted yet
-            indices_pool = subtract_lists(neighbor_indices.tolist(), admitted_indices)
-            indices_pool = np.array(indices_pool)
+                # Plot the segments
+                # plot_segments_with_labels(seg_from_lat, seg_from_lon, seg_to_lat, seg_to_lon, filter=neighbor_indices)
 
-            # Resample the indices if the number of admitted segments is too large
-            if len(indices_pool) > N_RESAMPLE and RESAMPLE:
-                # Only keep N_RESAMPLE indices from the neighbor_indices
-                np.random.seed(42)
-                neighbor_indices = np.random.choice(indices_pool, N_RESAMPLE, replace=False)
-                print(f'Resampled to {len(neighbor_indices)} indices')
+                # This list maintains the indices of the segments that have not been admitted yet
+                indices_pool = subtract_lists(neighbor_indices.tolist(), admitted_indices)
+                indices_pool = np.array(indices_pool)
 
-            # ==============================
-            # Base model TDF parameters 
-            # Parameters for the similarity model   
-            theta = {
-                'psi_bar': TDFParams(tau=0.1, alpha=15., x0=1.),  # psi_bar = 1 - psi, where psi is the cosine similarity
-                'wO': TDFParams(tau=0.1, alpha=15., x0=1.),  # weight of overlap
-                'wH': TDFParams(tau=0.1, alpha=15., x0=1.),   # weight of horizontal separation
-                'O': TDFParams(tau=0.1, alpha=15., x0=1.),   # overlap
-                'H': TDFParams(tau=0.1, alpha=15., x0=1.)   # horizontal separation
-            }
+                did_we_resample = False 
 
-            # Handling the directionality of the flow: we compute the similarity matrix of all segments against two directions of the polyline
-            for direction in [0, 1]:
-                flow_id += 1
-                print(f'Flow {i_flow + 1}/{len(polylines)}: direction {direction + 1}/2. Flow ID: {flow_id}')
+                # Resample the indices if the number of admitted segments is too large
+                if len(indices_pool) > N_RESAMPLE and RESAMPLE:
+                    # Only keep N_RESAMPLE indices from the neighbor_indices
+                    np.random.seed(42)
+                    neighbor_indices = np.random.choice(indices_pool, N_RESAMPLE, replace=False)
+                    print(f'Resampled to {len(neighbor_indices)} indices')
+                    did_we_resample = True
+
                 if direction == 0:
                     m_polyline = polylines[i_flow]
                 else:
                     m_polyline = polylines[i_flow][::-1] # reverse the polyline
                 m_polyline = np.array(m_polyline) # convert to numpy array
+
+                # Get the similarity matrix of all segments against the polyline
                 similarity_matrix_polyline = get_similarity_matrix_polyline(seg_from_lat[neighbor_indices], seg_from_lon[neighbor_indices], seg_to_lat[neighbor_indices], seg_to_lon[neighbor_indices], m_polyline, theta)
 
                 # Find the indices of the rows of similarity_matrix_polyline that are all zeros
                 zero_rows_indices = np.where(np.all(similarity_matrix_polyline == 0, axis=1))[0]
+                neighbor_indices_zero = neighbor_indices[zero_rows_indices]
+                # plot_segments_with_labels(seg_from_lat, seg_from_lon, seg_to_lat, seg_to_lon, filter=neighbor_indices_zero, show_labels=True, polyline=m_polyline)
                 neighbor_indices_d = np.delete(neighbor_indices, zero_rows_indices) # the indices of the segments that are not aligned with the polyline's direction
-                print(f'Admitted {len(neighbor_indices_d)} segments for this direction')
+                print(f'Admitted {len(neighbor_indices_d)} segments for this direction after similarity matrix filtering')
 
                 # ==============================
                 # Flow refinement
-                print(f'Seeking user feedback on the flow... Total segments: {len(neighbor_indices_d)}. Press "s" to skip this flow, "z" to undo the last action.')
+
+                if not did_we_resample:
+                    print('WARNING: Do not use "a" to resample the segments since there are not too many segments to be annotated')
+                    
+                print(f'Seeking user feedback on the flow... Total segments: {len(neighbor_indices_d)}. Press "s" to skip this flow, "z" to undo the last action, "a" for another set of segments.')
 
                 # Open the flow refinement interface, relegated_segments is a subset of neighbor_indices_d, not counting from 0
                 relegated_segments, again_flag = flow_refinement_interface(seg_from_lat, seg_from_lon, seg_to_lat, seg_to_lon, polylines[i_flow], neighbor_indices_d)
                 
+                # Unique-nize relegated segments
+                relegated_segments = np.unique(np.array(relegated_segments)).tolist()
+
                 if relegated_segments is None:
                     # This direction should be skipped
                     print(f'Skipping flow {i_flow + 1}/{len(polylines)}, direction {direction + 1}/2 due to user action')
@@ -581,10 +621,12 @@ if __name__ == '__main__':
                 relegated_indices.extend(relegated_segments)
 
                 if not again_flag:
-                    print('Will NOT sample another set of segments for this flow!')
+                    print('Will NOT sample another set of segments for this flow direction!')
                     user_wants_to_proceed = False 
                 else:
-                    print('Will sample another set of segments for this flow!')
+                    print('Will sample another set of segments for this flow direction!')
+                    user_wants_to_proceed = True
+                    attempts += 1
 
         # Write the admitted segments to a file
         write_label_data_to_yaml_file(filename, admitted_indices, labelled_indices, label)
