@@ -1,6 +1,7 @@
 data/csv/*
 data/tar/*
 data/sample/*
+data/hourly/*
 *.pyc
 data/wp/*
 *.tar.gz
