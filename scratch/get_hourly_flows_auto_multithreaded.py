@@ -66,11 +66,16 @@ def process_csv_file(csv_file):
             print(f'Skipping sampling because there are less than {SAMPLE_SIZE} ids')
 
     seg_id = deque()
-    seg_time = deque()
+    seg_from_time = deque()
+    seg_to_time = deque()
     seg_from_lat = deque()
     seg_from_lon = deque()
     seg_to_lat = deque()
     seg_to_lon = deque()
+    seg_from_alt = deque()
+    seg_to_alt = deque()
+    seg_from_speed = deque()
+    seg_to_speed = deque()
 
     callsigns_skipped = 0
     for id in hour_ids:
@@ -85,21 +90,31 @@ def process_csv_file(csv_file):
 
         for i in range(len(tr['tp_time']) - 1):
             seg_id.append(id)
-            seg_time.append(tr['tp_time'][i])
+            seg_from_time.append(tr['tp_time'][i])
+            seg_to_time.append(tr['tp_time'][i+1])
             seg_from_lat.append(tr['tp_lat'][i])
             seg_from_lon.append(tr['tp_lon'][i])
             seg_to_lat.append(tr['tp_lat'][i+1])
             seg_to_lon.append(tr['tp_lon'][i+1])
+            seg_from_alt.append(tr['tp_alt'][i])
+            seg_to_alt.append(tr['tp_alt'][i+1])
+            seg_from_speed.append(tr['tp_vel'][i])
+            seg_to_speed.append(tr['tp_vel'][i+1])
 
     print(f'There were {len(hour_ids)} callsigns, of which {callsigns_skipped} were skipped')
     
     segments_df = pd.DataFrame({
         'id': list(seg_id),
-        'time': list(seg_time),
+        'from_time': list(seg_from_time),
+        'to_time': list(seg_to_time),
         'from_lat': list(seg_from_lat),
         'from_lon': list(seg_from_lon), 
         'to_lat': list(seg_to_lat),
-        'to_lon': list(seg_to_lon)
+        'to_lon': list(seg_to_lon),
+        'from_alt': list(seg_from_alt),
+        'to_alt': list(seg_to_alt),
+        'from_speed': list(seg_from_speed),
+        'to_speed': list(seg_to_speed)
     })
     
     output_filename = f'{PATH_PREFIX}/data/hourly/{csv_file.split(".")[0]}.csv'
