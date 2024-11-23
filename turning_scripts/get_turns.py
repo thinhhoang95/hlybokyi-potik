@@ -5,7 +5,12 @@ from changepy import pelt
 from changepy.costs import normal_mean
 import matplotlib.pyplot as plt
 
-from typing import TypedDict, NotRequired
+from typing import TypedDict
+
+try:
+    from typing import NotRequired
+except ImportError:
+    from typing_extensions import NotRequired
 
 import zarr
 

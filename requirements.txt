@@ -6,3 +6,6 @@ numpy
 seaborn
 pyyaml
 mpire
+haversine
+zarr
+changepy

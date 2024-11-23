@@ -1,6 +1,6 @@
 # ************* PARAMETERS *************
-ENABLE_SAMPLING = True
-SAMPLE_SIZE = 2000
+ENABLE_SAMPLING = False
+SAMPLE_SIZE = 5000
 # ***************************************
 
 from collections import deque
@@ -23,10 +23,15 @@ sys.path.append(os.path.join(current_dir, 'turning_scripts'))
 from data_preambles import dtypes_no_id, col_names, csv_to_exclude, catalog_col_names
 from path_prefix import PATH_PREFIX
 
+from cleaning_script import clean_by_speed as cleaner
+
 # List all the csv files in the data/csv directory
 csv_files = [f for f in os.listdir(f'{PATH_PREFIX}/data/csv') if f.endswith('.csv')]
 # Remove files that start with underscore
 csv_files = [f for f in csv_files if not f.startswith('._')]
+# Remove files that contain any non-numeric characters except period and csv extension
+csv_files = [f for f in csv_files if all(c.isdigit() or c == '.' or c in 'csv' for c in f)]
+
 
 # Add MPIRE import at the top with other imports
 from mpire import WorkerPool
@@ -40,7 +45,7 @@ def process_csv_file(csv_file):
     print(f'Processing {csv_file}')
     # Check if result file already exists
     timestamp = int(csv_file.split('.')[0])
-    result_file = f'{PATH_PREFIX}/data/hourly/{csv_file.split(".")[0]}_{timestamp}.csv'
+    result_file = f'{PATH_PREFIX}/data/hourly/{csv_file.split(".")[0]}.csv'
     if os.path.exists(result_file):
         print(f'Skipping {csv_file} - result already exists')
         return None
@@ -71,6 +76,8 @@ def process_csv_file(csv_file):
     for id in hour_ids:
         try:
             df_id = hour_df[hour_df['id'] == id]
+            # Clean the dataframe
+            df_id = cleaner.clean_trajectory(df_id)
             tr = get_turning_points(df_id)
         except ValueError as e:
             callsigns_skipped += 1
@@ -95,7 +102,7 @@ def process_csv_file(csv_file):
         'to_lon': list(seg_to_lon)
     })
     
-    output_filename = f'{PATH_PREFIX}/data/hourly/{csv_file.split(".")[0]}_{timestamp}.csv'
+    output_filename = f'{PATH_PREFIX}/data/hourly/{csv_file.split(".")[0]}.csv'
     segments_df.to_csv(output_filename, index=False)
     print(f'Saved {len(segments_df)} segments to {output_filename}')
     return output_filename
@@ -104,7 +111,7 @@ def process_csv_file(csv_file):
 if __name__ == '__main__':
     # Use max_workers=None to automatically use all available CPU cores
     with WorkerPool(n_jobs=None) as pool:
-        results = pool.map(process_csv_file, csv_files, progress_bar=True)
+        results = pool.map(process_csv_file, csv_files[:5], progress_bar=True)
     
     # Filter out None results (skipped files)
     completed_files = [r for r in results if r is not None]
