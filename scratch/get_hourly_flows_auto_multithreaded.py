@@ -1,6 +1,7 @@
 # ************* PARAMETERS *************
 ENABLE_SAMPLING = False
 SAMPLE_SIZE = 5000
+print(f'Sampling enabled with sample size of {SAMPLE_SIZE}' if ENABLE_SAMPLING else 'Sampling disabled')
 # ***************************************
 
 from collections import deque
@@ -126,7 +127,7 @@ def process_csv_file(csv_file):
 if __name__ == '__main__':
     # Use max_workers=None to automatically use all available CPU cores
     with WorkerPool(n_jobs=None) as pool:
-        results = pool.map(process_csv_file, csv_files[:5], progress_bar=True)
+        results = pool.map(process_csv_file, csv_files, progress_bar=True)
     
     # Filter out None results (skipped files)
     completed_files = [r for r in results if r is not None]
