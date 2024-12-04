@@ -9,3 +9,4 @@ data/wp/*
 ._*
 __pycache__
 *.pickle
+.env
