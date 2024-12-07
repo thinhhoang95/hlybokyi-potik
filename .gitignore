@@ -2,7 +2,9 @@ data/csv/*
 data/tar/*
 data/sample/*
 data/hourly/*
+data/hourly_merged/*
 data/catalog/*
+data/plot/*
 *.pyc
 data/wp/*
 *.tar.gz
