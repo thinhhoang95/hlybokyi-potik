@@ -85,6 +85,9 @@ def sample_working_dataset(sample_file_name: str = 'sample.csv', max_chunk_calls
         # Create the id column for df   
         df['id'] = df['callsign'] + df['icao24']
         
+        # For each file, and for each flight spanning over multiple files, we get
+        # all the IDs that present in this file, so we can concatenate all the
+        # relevant rows here
         ids_to_process = get_ids_in_file(explicit_catalog, file, id_multi_file)
         df_admit = df[df['id'].isin(ids_to_process)]
         df_sample = pd.concat([df_sample, df_admit])

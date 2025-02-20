@@ -12,3 +12,8 @@ data/wp/*
 __pycache__
 *.pickle
 .env
+*.ds.pt
+*.pt
+flight_schedules/processed_data/*
+flight_schedules/raw_downloads/*
+flight_schedules/routes/*
