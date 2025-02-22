@@ -1,6 +1,6 @@
 #!/bin/bash
 
-for file in *.csv; do
+for file in $(find summer23/raw/ -type f -name "*.csv"); do
     if [ -s "$file" ]; then
         echo "Keeping $file"
     else
