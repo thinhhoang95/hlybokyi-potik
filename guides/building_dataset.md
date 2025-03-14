@@ -1,0 +1,3 @@
+- Use `pre_scripts/1_1download_ostrino.py` to download ADS-B data from OpenSky.
+- Then, use `create_merge_instrs_server.ipynb` to merge the dangling flights (flights existing between two hourly CSV files).
+- The script to download weather file does not exist in this repo, but use GEFS repo to download.

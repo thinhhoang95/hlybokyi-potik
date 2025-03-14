@@ -121,7 +121,7 @@ def execute_trino_commands(from_datetime, to_datetime):
         pool.map(download_for_timestamp, hourly_timestamps)
 
 from_datetime = datetime.datetime(2023, 4, 1, 0, 0, 0)  # Adjust as needed
-to_datetime = datetime.datetime(2024, 9, 30, 0, 0, 0)    # Adjust as needed
+to_datetime = datetime.datetime(2023, 9, 30, 0, 0, 0)    # Adjust as needed
 
 # Create the summer23 folder
 os.makedirs('summer23', exist_ok=True)

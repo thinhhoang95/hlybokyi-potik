@@ -22,3 +22,4 @@ pre_scripts2/*/*/*.csv
 pre_scripts2/*/*.cat*
 pre_scripts2/*.csv 
 routes/*.csv
+data/weather/cdfs/*

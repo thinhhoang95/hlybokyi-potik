@@ -1,0 +1,22 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Core Problem-Solving Principles
+
+### Approach
+- **Start with the simplest solution** - Complex approaches are usually wrong approaches
+- **Question your assumptions** - Are you solving the actual problem or your interpretation of it?
+- **Control the data, not the UI** - Filtering what's shown is simpler than manipulating how it's shown
+
+### Implementation
+- **Check the user's query, follow instructions carefully** - Do not do things that you are not asked for
+- **Prefer fewer moving parts** - Each state, ref, and effect multiplies complexity
+- **When stuck, restart completely** - Don't tweak a fundamentally flawed approach
+- **Solve directly, not tangentially** - Attack the core need, not the symptoms
+
+### Response to Feedback
+- **"Simpler" means rethink, not refine** - Consider fundamentally different approaches
+- **Listen for redirection in feedback** - Keywords like "simpler" often signal you're on the wrong track
+- **Complexity is a warning sign** - If your solution requires special cases, it's probably wrong
