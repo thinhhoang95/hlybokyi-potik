@@ -1,3 +1,5 @@
 - Use `pre_scripts/1_1download_ostrino.py` to download ADS-B data from OpenSky.
 - Then, use `create_merge_instrs_server.ipynb` to merge the dangling flights (flights existing between two hourly CSV files).
-- The script to download weather file does not exist in this repo, but use GEFS repo to download.
+- The script to download weather file is `download_grib.ipynb`.
+- Use `count_blocks.ipynb` notebook to build a basic count output.
+- Use `infer_route_auto_server.py` script from project-akrav (route_infer module) to obtain the waypoint named routes.

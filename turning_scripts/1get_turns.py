@@ -40,6 +40,8 @@ def process_sample_file(df_flight: pd.DataFrame):
             'waypoint_time': tr['tp_time'],
             'waypoint_vel': tr['tp_vel'],
         })
+        
+        # TODO: I think this is wrong, we should use the dp_time and dp_alt from the tr object
 
         temp_df_rises = pd.DataFrame({
             'id': [id] * len(tr['tp_time']),

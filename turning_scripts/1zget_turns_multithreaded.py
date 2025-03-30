@@ -41,6 +41,7 @@ def process_sample_file(file):
             'waypoint_speed': tr['tp_vel']
         })
         
+        # TODO: I think this is wrong, we should use the dp_time and dp_alt from the tr object
         temp_df_rises = pd.DataFrame({
             'id': [id] * len(tr['tp_time']),
             'waypoint_name': [generate_waypoint_names() for _ in range(len(tr['tp_time']))],
