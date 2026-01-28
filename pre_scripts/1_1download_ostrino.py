@@ -7,6 +7,13 @@ from multiprocessing import Pool, cpu_count, Value, Manager
 
 # jwt = 'eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICJ0SVIwSDB0bmNEZTlKYmp4dFctWEtqZ0RYSWExNnR5eU5DWHJxUzJQNkRjIn0.eyJleHAiOjE3MjUzNTY4NjUsImlhdCI6MTcyNTM0OTY2NSwianRpIjoiMGNiYzYxZTEtNDI2Mi00MDA3LTg5MTQtZTgxN2EzNjRmM2M5IiwiaXNzIjoiaHR0cHM6Ly9hdXRoLm9wZW5za3ktbmV0d29yay5vcmcvYXV0aC9yZWFsbXMvb3BlbnNreS1uZXR3b3JrIiwiYXVkIjoiYWNjb3VudCIsInN1YiI6IjEzYmYwYmQwLTMzOTktNDA2NS04ZGFiLTIyYzI0Njg1N2E4MSIsInR5cCI6IkJlYXJlciIsImF6cCI6InRyaW5vLWNsaWVudCIsInNlc3Npb25fc3RhdGUiOiIxZjQ2MzhhMy0wYjk4LTRmYzctOWNlOC1jZDBiOWJiMGI1N2UiLCJyZWFsbV9hY2Nlc3MiOnsicm9sZXMiOlsib2ZmbGluZV9hY2Nlc3MiLCJ1bWFfYXV0aG9yaXphdGlvbiIsImRlZmF1bHQtcm9sZXMtb3BlbnNreS1uZXR3b3JrIl19LCJyZXNvdXJjZV9hY2Nlc3MiOnsiYWNjb3VudCI6eyJyb2xlcyI6WyJtYW5hZ2UtYWNjb3VudCIsIm1hbmFnZS1hY2NvdW50LWxpbmtzIiwidmlldy1wcm9maWxlIl19fSwic2NvcGUiOiJwcm9maWxlIGdyb3VwcyBlbWFpbCIsInNpZCI6IjFmNDYzOGEzLTBiOTgtNGZjNy05Y2U4LWNkMGI5YmIwYjU3ZSIsImVtYWlsX3ZlcmlmaWVkIjp0cnVlLCJuYW1lIjoiVGhpbmggSG9hbmciLCJncm91cHMiOlsiL29wZW5za3kvdHJpbm8vcmVhZG9ubHkiXSwicHJlZmVycmVkX3VzZXJuYW1lIjoidGhpbmhob2FuZ2RpbmgiLCJnaXZlbl9uYW1lIjoiVGhpbmgiLCJmYW1pbHlfbmFtZSI6IkhvYW5nIiwiZW1haWwiOiJ0aGluaC5ob2FuZ2RpbmhAZW5hYy5mciJ9.GeiFz_Num5kgHA6BwosqilwlKUmdpi8fKsaPIO06PotBWLmCkrl7Y6g-os60xyILuvd31W1T-pT0-llwTPyO1PBs0VsCsOPa1mgrRyFE5uAa-QFGV_MuaLcd6BGeTR6Ss9E2vrJYcmNu630uKYu3UJOYjeCA0whkUccAUKiBiGrQohwlec0Ryz1I67rEruENt6sgV3urrywURJ8BDtJPbMnqdrG_FpMgqaWl83PEsN2aypL9Oq36fOOT68gZONgvx5s1SU6SUIDKzEVRL_V8JhBzDaY8fWJNuHaZYAsPTyUoOV_ChUSIeyvek5nm8BFsH8fjc-tUvfSXXgpZUd5jpg'
 
+MASTER_DATASET_PREFIX = 'summer24'
+
+# Resolve the Trino CLI path relative to this file so we don't depend on $PATH.
+# This assumes the `trino` executable lives at the project root alongside `trino.jar`.
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+TRINO_BIN = os.path.join(PROJECT_ROOT, "trino")
+
 def get_jwt():
     result = requests.post(
     "https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token",
@@ -20,10 +27,11 @@ def get_jwt():
     print('Obtained JWT: ', result.json()['access_token'][:10])
     return result.json()['access_token']
 
-def init_worker(counter, jwt_holder):
-    global downloaded_counter, shared_jwt
+def init_worker(counter, jwt_holder, total_files_):
+    global downloaded_counter, shared_jwt, total_files
     downloaded_counter = counter
     shared_jwt = jwt_holder
+    total_files = total_files_
 
 def download_for_timestamp(timestamp):
     """
@@ -40,13 +48,20 @@ def download_for_timestamp(timestamp):
     # Get current JWT
     current_jwt = shared_jwt['token']
     
-    # Check if the file already exists
-    if os.path.exists(f"summer23/raw/{timestamp}.csv"):
-        with downloaded_counter.get_lock():
-            downloaded_counter.value += 1
-            current = downloaded_counter.value
-            print(f"File {timestamp}.csv already exists. Skipping download. Progress: {current/total_files:.1%}")
-        return
+    # Check if the file already exists (legacy flat layout) and is non‑empty.
+    # If the file exists but is empty, we treat it as a failed/partial download
+    # and will re‑download instead of skipping.
+    legacy_path = f"{MASTER_DATASET_PREFIX}/raw/{timestamp}.csv"
+    if os.path.exists(legacy_path):
+        size = os.path.getsize(legacy_path)
+        if size > 0:
+            with downloaded_counter.get_lock():
+                downloaded_counter.value += 1
+                current = downloaded_counter.value
+                print(f"File {timestamp}.csv already exists (legacy layout, size={size} bytes). Skipping download. Progress: {current/total_files:.1%}")
+            return
+        else:
+            print(f"WARNING: Legacy file {timestamp}.csv exists but is empty (size=0). Will re-download.")
     
     print("Current timestamp: ", timestamp)
     print("Current datetime: ", datetime.datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S'))
@@ -54,17 +69,25 @@ def download_for_timestamp(timestamp):
     date = datetime.datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d')
 
     # Create the date folder if it doesn't exist
-    os.makedirs(f'summer23/raw/{date}', exist_ok=True)
+    os.makedirs(f'{MASTER_DATASET_PREFIX}/raw/{date}', exist_ok=True)
 
-    # Check if the file already exists
-    if os.path.exists(f"summer23/raw/{date}/{timestamp}.csv"):
-        with downloaded_counter.get_lock():
-            downloaded_counter.value += 1
-            current = downloaded_counter.value
-            print(f"File {timestamp}.csv already exists. Skipping download. Progress: {current/total_files:.1%}")
-        return
+    output_path = f"{MASTER_DATASET_PREFIX}/raw/{date}/{timestamp}.csv"
+
+    # Check if the file already exists and is non‑empty.
+    # If it's empty, we will re‑download instead of skipping so that
+    # failed downloads do not leave behind empty CSVs.
+    if os.path.exists(output_path):
+        size = os.path.getsize(output_path)
+        if size > 0:
+            with downloaded_counter.get_lock():
+                downloaded_counter.value += 1
+                current = downloaded_counter.value
+                print(f"File {timestamp}.csv already exists (size={size} bytes). Skipping download. Progress: {current/total_files:.1%}")
+            return
+        else:
+            print(f"WARNING: Existing file {timestamp}.csv is empty (size=0). Will re-download.")
     
-    command = f"java -jar trino.jar --user=thinhhoangdinh --server=https://trino.opensky-network.org --access-token={current_jwt} --catalog 'minio' --schema 'osky' --execute='SELECT \
+    command = f"{TRINO_BIN} --user=thinhhoangdinh --server=https://trino.opensky-network.org --access-token={current_jwt} --catalog 'minio' --schema 'osky' --execute='SELECT \
         v.time, v.icao24, v.lat, v.lon, v.heading, v.callsign, v.geoaltitude \
     FROM \
         state_vectors_data4 v \
@@ -86,28 +109,52 @@ def download_for_timestamp(timestamp):
         v.lat BETWEEN 30 AND 72 \
         AND v.lon BETWEEN -15 AND 40 \
         AND v.hour = {timestamp} \
-        AND v.time - v.lastcontact <= 15;' --output-format CSV > summer23/raw/{date}/{timestamp}.csv"
+        AND v.time - v.lastcontact <= 15;' --output-format CSV > {output_path}"
 
-    subprocess.run(command, shell=True)
-    
+    # Run Trino and capture stderr so we can see if/why it failed.
+    result = subprocess.run(
+        command,
+        shell=True,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+    if result.returncode != 0:
+        # If the command failed, log the error and clean up any empty file Trino may have created.
+        print(f"ERROR: Trino query failed for timestamp {timestamp} with return code {result.returncode}")
+        if result.stderr:
+            print("Trino stderr:")
+            print(result.stderr.strip())
+
+        if os.path.exists(output_path) and os.path.getsize(output_path) == 0:
+            os.remove(output_path)
+            print(f"Removed empty output file {output_path} created by failed query.")
+        return
+
+    # At this point the command exited successfully. Double‑check that the file is non‑empty.
+    if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
+        print(f"WARNING: Trino reported success but output file {output_path} is missing or empty.")
+        return
+
     with downloaded_counter.get_lock():
         downloaded_counter.value += 1
         current = downloaded_counter.value
-        print(f"Downloaded {timestamp}.csv. Progress: {current/total_files:.1%}")
+        print(f"Downloaded {timestamp}.csv (size={os.path.getsize(output_path)} bytes). Progress: {current/total_files:.1%}")
 
 def execute_trino_commands(from_datetime, to_datetime):
     """
     Executes Trino shell commands in parallel for each hour within the specified datetime range.
     """
     # Generate timestamps as before
-    hourly_timestamps = pd.date_range(from_datetime, to_datetime, freq='H').astype('int64') // 10**9
+    # NOTE: use lowercase 'h' to avoid pandas FutureWarning about deprecated 'H'
+    hourly_timestamps = pd.date_range(from_datetime, to_datetime, freq='h').astype('int64') // 10**9
     
     global total_files
     total_files = len(hourly_timestamps)
     print(f'There are {total_files} splits to download')
     
-    # Use maximum of 4 processes or CPU count, whichever is smaller
-    num_processes = min(1, cpu_count())
+    # Use only one process to avoid stressing the server.
+    num_processes = 1
     print(f"Using {num_processes} processes for parallel downloads")
     
     # Create a shared counter and JWT holder
@@ -117,16 +164,18 @@ def execute_trino_commands(from_datetime, to_datetime):
     jwt_holder['token'] = get_jwt()  # Initial JWT
     
     # Create a pool of workers and map the download function to timestamps
-    with Pool(processes=num_processes, initializer=init_worker, initargs=(counter, jwt_holder,)) as pool:
+    with Pool(processes=num_processes, initializer=init_worker, initargs=(counter, jwt_holder, total_files,)) as pool:
         pool.map(download_for_timestamp, hourly_timestamps)
 
-from_datetime = datetime.datetime(2023, 4, 1, 0, 0, 0)  # Adjust as needed
-to_datetime = datetime.datetime(2023, 9, 30, 0, 0, 0)    # Adjust as needed
 
-# Create the summer23 folder
-os.makedirs('summer23', exist_ok=True)
+if __name__ == "__main__":
+    from_datetime = datetime.datetime(2024, 4, 1, 0, 0, 0)  # Adjust as needed
+    to_datetime = datetime.datetime(2024, 9, 30, 23, 59, 59)    # Adjust as needed
 
-# Inside summer23 folder, create a raw folder
-os.makedirs('summer23/raw', exist_ok=True)
+    # Create the MASTER download folder
+    os.makedirs('summer24', exist_ok=True)
 
-execute_trino_commands(from_datetime, to_datetime)
+    # Inside MASTER folder, create a raw folder
+    os.makedirs('summer24/raw', exist_ok=True)
+
+    execute_trino_commands(from_datetime, to_datetime)
