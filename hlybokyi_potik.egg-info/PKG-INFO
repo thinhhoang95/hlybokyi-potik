@@ -1,0 +1,23 @@
+Metadata-Version: 2.4
+Name: hlybokyi-potik
+Version: 0.1.0
+Summary: Local tools and notebooks for flight data processing
+Requires-Python: >=3.9
+Description-Content-Type: text/markdown
+Requires-Dist: pandas
+Requires-Dist: matplotlib
+Requires-Dist: cartopy
+Requires-Dist: tqdm
+Requires-Dist: numpy
+Requires-Dist: seaborn
+Requires-Dist: pyyaml
+Requires-Dist: mpire
+Requires-Dist: haversine
+Requires-Dist: zarr
+Requires-Dist: changepy
+
+- Use `pre_scripts/1_1download_ostrino.py` to download ADS-B data from OpenSky.
+- Then, use `create_merge_instrs_server.ipynb` to merge the dangling flights (flights existing between two hourly CSV files).
+- The script to download weather file is `download_grib.ipynb`.
+- Use `count_blocks.ipynb` notebook to build a basic count output.
+- Use `infer_route_auto_server.py` script from project-akrav (route_infer module) to obtain the waypoint named routes.

@@ -1,3 +1,70 @@
+"""
+Compute flight routes by matching observed flight segments to an air-route network graph.
+
+This module infers which sequence of graph edges (waypoint-to-waypoint legs) best explains
+a list of flight segments (straight-line legs between recorded positions). It uses
+haversine distances, bearing alignment, and projected overlap to score how well each
+segment fits each candidate edge, then performs a depth-first search to find the top
+candidate routes.
+
+What it does
+------------
+- **Geometry**: Great-circle distance (haversine), initial bearing, and local Cartesian
+  projection for overlap computation.
+- **Fitness**: For each (segment, edge) pair, a score combines orientation similarity
+  (bearing) and overlap along the edge; endpoint segments use a higher weight on
+  orientation.
+- **Search**: The graph is first cropped to a bounding box around the segments (plus
+  margin). A DFS enumerates edge sequences that match segments in order; routes are
+  ranked by total fitness and the top N are returned.
+
+Input / output examples
+-----------------------
+**Input – segments** (list of dicts, one per leg):
+  Each segment must have: from_lat, from_lon, to_lat, to_lon (and optionally id,
+  from_time, to_time, from_alt, to_alt, from_speed, to_speed).
+
+  Example:
+    segments = [
+        {"from_lat": 42.94, "from_lon": 14.27, "to_lat": 46.18, "to_lon": 14.54, ...},
+        {"from_lat": 46.18, "from_lon": 14.54, "to_lat": 35.85, "to_lon": 14.49, ...}
+    ]
+
+**Input – graph** (dict with "nodes" and "edges"):
+  - nodes: dict mapping node_id -> (lat, lon).
+  - edges: list of dicts with "from", "to" (node ids), and optionally "id".
+
+  Example:
+    graph = {
+        "nodes": {"MEGAN": (42.0, 14.0), "TIRSA": (46.0, 14.5), "OTHER": (36.0, 14.5)},
+        "edges": [
+            {"id": "edge1", "from": "MEGAN", "to": "TIRSA"},
+            {"id": "edge2", "from": "TIRSA", "to": "OTHER"}
+        ]
+    }
+
+**Output – infer_flight_routes(segments, graph, max_routes=5)**:
+  List of up to max_routes tuples (route, total_fitness), where route is a list of
+  edge dicts and total_fitness is the sum of per-segment fitness scores.
+
+  Example:
+    [
+        ([{"from": "MEGAN", "to": "TIRSA"}, {"from": "TIRSA", "to": "OTHER"}], 1.82),
+        ([...], 1.45),
+        ...
+    ]
+
+Parameters (main entry)
+-----------------------
+- segments : list of dict
+  Flight legs with from_lat, from_lon, to_lat, to_lon (and optional metadata).
+- graph : dict
+  Air-route network with keys "nodes" (id -> (lat, lon)) and "edges" (list of
+  {"from", "to"[, "id"]}).
+- max_routes : int, optional
+  Maximum number of candidate routes to return (default 5).
+"""
+
 import math
 
 # Constants
@@ -10,6 +77,18 @@ EARTH_RADIUS = 6371000  # meters
 def haversine_distance(lat1, lon1, lat2, lon2):
     """
     Compute the great-circle distance between two points on Earth (in meters).
+
+    Parameters
+    ----------
+    lat1, lon1 : float
+        Latitude and longitude of the first point (degrees).
+    lat2, lon2 : float
+        Latitude and longitude of the second point (degrees).
+
+    Returns
+    -------
+    float
+        Distance in meters.
     """
     lat1_rad = math.radians(lat1)
     lat2_rad = math.radians(lat2)
@@ -23,6 +102,20 @@ def haversine_distance(lat1, lon1, lat2, lon2):
 def compute_bearing(lat1, lon1, lat2, lon2):
     """
     Compute the initial bearing (in degrees) from point A to point B.
+
+    Bearing is in [0, 360), where 0 = North, 90 = East, 180 = South, 270 = West.
+
+    Parameters
+    ----------
+    lat1, lon1 : float
+        Latitude and longitude of the start point (degrees).
+    lat2, lon2 : float
+        Latitude and longitude of the end point (degrees).
+
+    Returns
+    -------
+    float
+        Initial bearing in degrees.
     """
     lat1_rad = math.radians(lat1)
     lat2_rad = math.radians(lat2)
@@ -39,6 +132,18 @@ def convert_to_xy(lat, lon, ref_lat, ref_lon):
     """
     Convert latitude and longitude to local Cartesian (x, y) coordinates in meters,
     using an equirectangular approximation around a reference point.
+
+    Parameters
+    ----------
+    lat, lon : float
+        Point to convert (degrees).
+    ref_lat, ref_lon : float
+        Reference point (degrees); (0, 0) in the output frame.
+
+    Returns
+    -------
+    tuple of (float, float)
+        (x, y) in meters; x is eastward, y is northward.
     """
     # Convert degrees to radians
     lat_rad = math.radians(lat)
@@ -56,14 +161,32 @@ def convert_to_xy(lat, lon, ref_lat, ref_lon):
 
 def projection_fitness(flight_segment, edge, graph, is_endpoint=False):
     """
-    Compute a fitness score for how well a flight segment (straight line between 
-    recorded coordinates) matches a given edge in the network.
-    
+    Compute a fitness score for how well a flight segment matches a given graph edge.
+
     The score is a weighted sum of:
-      - Orientation (bearing) similarity.
-      - Overlap (projected along the edge) between the flight segment and the edge.
-    
-    For the first and last segments (is_endpoint=True) the overlap is downweighted.
+    - Orientation: similarity of segment bearing to edge bearing (1 when aligned, 0 when
+      difference >= 90°).
+    - Overlap: length of the segment projected onto the edge, normalized by segment
+      length, capped at 1.
+
+    For endpoint segments (is_endpoint=True), orientation weight is 0.8 and overlap
+    0.2; otherwise 0.5 and 0.5.
+
+    Parameters
+    ----------
+    flight_segment : dict
+        Must have keys from_lat, from_lon, to_lat, to_lon (degrees).
+    edge : dict
+        Graph edge with "from" and "to" node ids.
+    graph : dict
+        Graph with "nodes" (id -> (lat, lon)) and "edges".
+    is_endpoint : bool, optional
+        If True, weight overlap less (default False).
+
+    Returns
+    -------
+    float
+        Fitness in [0, 1] (higher = better match).
     """
     # Retrieve flight segment endpoints
     f_from_lat = flight_segment['from_lat']
@@ -147,8 +270,23 @@ def projection_fitness(flight_segment, edge, graph, is_endpoint=False):
 
 def get_relevant_subgraph(graph, segments, margin=0.5):
     """
-    Extract the subgraph that covers the area spanned by the flight segments,
+    Extract the subgraph whose nodes lie within the bounding box of the segments
     plus a margin (in degrees).
+
+    Parameters
+    ----------
+    graph : dict
+        Full graph with "nodes" and "edges".
+    segments : list of dict
+        Flight segments with from_lat, from_lon, to_lat, to_lon.
+    margin : float, optional
+        Degrees to add on all sides of the bounding box (default 0.5).
+
+    Returns
+    -------
+    dict
+        Subgraph with keys "nodes" and "edges"; only nodes inside the box are
+        kept, and only edges whose endpoints are both in the filtered nodes.
     """
     # Compute bounding box from all segment endpoints.
     all_lats = []
@@ -185,15 +323,30 @@ def get_relevant_subgraph(graph, segments, margin=0.5):
 
 def dfs_search_routes(segment_index, current_route, current_fitness, segments, graph, candidate_routes, max_routes):
     """
-    Recursively search for routes matching the flight segments.
-    
-    - segment_index: index of the current flight segment to match.
-    - current_route: list of edges chosen so far.
-    - current_fitness: cumulative fitness score so far.
-    - segments: list of flight segments.
-    - graph: the (sub)graph to search.
-    - candidate_routes: list to collect complete routes (each as (route, fitness)).
-    - max_routes: maximum number of candidate routes to gather.
+    Recursively search for edge sequences that match the flight segments in order.
+
+    For each segment, candidate edges are scored with projection_fitness; only those
+    above a threshold are expanded. For the first segment, all edges in the graph are
+    candidates; for later segments, only edges outgoing from the last edge's "to" node
+    (plus optionally reusing the same edge) are considered. Stops when max_routes
+    complete routes have been collected.
+
+    Parameters
+    ----------
+    segment_index : int
+        Index of the current flight segment to match.
+    current_route : list of dict
+        Edges chosen so far.
+    current_fitness : float
+        Cumulative fitness of current_route.
+    segments : list of dict
+        Flight segments (from_lat, from_lon, to_lat, to_lon).
+    graph : dict
+        Subgraph with "nodes" and "edges".
+    candidate_routes : list
+        Mutable list to which complete routes are appended as (route, total_fitness).
+    max_routes : int
+        Stop once this many candidate routes have been gathered.
     """
     if segment_index >= len(segments):
         # Completed a candidate route.
@@ -244,9 +397,28 @@ def dfs_search_routes(segment_index, current_route, current_fitness, segments, g
 
 def infer_flight_routes(segments, graph, max_routes=5):
     """
-    Given a list of flight segments and the full air route network graph, infer the candidate routes.
-    
-    Returns a list of tuples (route, total_fitness), where route is a list of edge dicts.
+    Infer the top candidate routes that explain the given flight segments on the graph.
+
+    Restricts the graph to the segment bounding box (with margin), runs a DFS to
+    enumerate matching edge sequences, then returns the top max_routes by total
+    fitness.
+
+    Parameters
+    ----------
+    segments : list of dict
+        Flight legs with from_lat, from_lon, to_lat, to_lon (and optional metadata).
+    graph : dict
+        Air-route network with "nodes" (id -> (lat, lon)) and "edges" (list of
+        {"from", "to"[, "id"]}).
+    max_routes : int, optional
+        Maximum number of candidate routes to return (default 5).
+
+    Returns
+    -------
+    list of tuple
+        Each element is (route, total_fitness), where route is a list of edge dicts
+        and total_fitness is the sum of per-segment fitness scores. Sorted by
+        total_fitness descending.
     """
     # First, restrict the graph to the relevant area.
     subgraph = get_relevant_subgraph(graph, segments, margin=0.5)

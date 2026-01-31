@@ -1,0 +1,11 @@
+pandas
+matplotlib
+cartopy
+tqdm
+numpy
+seaborn
+pyyaml
+mpire
+haversine
+zarr
+changepy

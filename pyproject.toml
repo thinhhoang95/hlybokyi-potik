@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hlybokyi-potik"
+version = "0.1.0"
+description = "Local tools and notebooks for flight data processing"
+readme = "guides/building_dataset.md"
+requires-python = ">=3.9"
+dependencies = [
+  "pandas",
+  "matplotlib",
+  "cartopy",
+  "tqdm",
+  "numpy",
+  "seaborn",
+  "pyyaml",
+  "mpire",
+  "haversine",
+  "zarr",
+  "changepy",
+]
+
+[tool.setuptools]
+py-modules = ["data_preambles", "path_prefix", "trajoscope"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["*"]
+namespaces = true

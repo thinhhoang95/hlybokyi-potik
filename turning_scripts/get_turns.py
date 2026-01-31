@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from geo.drift_compensation import get_track_drift_rate, great_circle_distance
+from turning_scripts.geo.drift_compensation import get_track_drift_rate, great_circle_distance
 from changepy import pelt
 from changepy.costs import normal_mean
 import matplotlib.pyplot as plt
