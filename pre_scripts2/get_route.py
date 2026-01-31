@@ -68,7 +68,7 @@ def parse_args():
     return p.parse_args()
 
 
-def process_csv_file(csv_file, output_dir, enable_sampling, sample_size):
+def process_csv_file(csv_file, output_dir, enable_sampling, sample_size, show_progress=False):
     """Process one CS state CSV into a route-segments CSV.
 
     Loads the CSV, builds flight ``id`` as icao24 + callsign (uppercase). Optionally
@@ -131,7 +131,13 @@ def process_csv_file(csv_file, output_dir, enable_sampling, sample_size):
     seg_to_speed = deque()
 
     callsigns_skipped = 0
-    for id in tqdm(hour_ids, desc=f'Processing {file_basename}. Skipped {callsigns_skipped} callsigns', total=len(hour_ids)):
+    progress_iter = hour_ids
+    pbar = None
+    if show_progress:
+        pbar = tqdm(hour_ids, desc=f'Processing {file_basename}', total=len(hour_ids))
+        progress_iter = pbar
+
+    for id in progress_iter:
         try:
             df_id = hour_df[hour_df['id'] == id]
             # Clean the dataframe
@@ -139,6 +145,8 @@ def process_csv_file(csv_file, output_dir, enable_sampling, sample_size):
             tr = get_turning_points(df_id)
         except ValueError as e:
             callsigns_skipped += 1
+            if pbar is not None:
+                pbar.set_postfix(skipped=callsigns_skipped)
             continue
 
         for i in range(len(tr['tp_time']) - 1):
@@ -153,6 +161,9 @@ def process_csv_file(csv_file, output_dir, enable_sampling, sample_size):
             seg_to_alt.append(tr['tp_alt'][i+1])
             seg_from_speed.append(tr['tp_vel'][i])
             seg_to_speed.append(tr['tp_vel'][i+1])
+
+    if pbar is not None:
+        pbar.close()
 
     print(f'There were {len(hour_ids)} callsigns, of which {callsigns_skipped} were skipped')
     
@@ -207,10 +218,10 @@ def main():
     os.makedirs(output_dir, exist_ok=True)
 
     def process_one(csv_file):
-        return process_csv_file(csv_file, output_dir, enable_sampling, sample_size)
+        return process_csv_file(csv_file, output_dir, enable_sampling, sample_size, show_progress=False)
 
     # Process first file only (uncomment below for parallel processing of all files)
-    # process_one(csv_files[0])
+    # process_csv_file(csv_files[0], output_dir, enable_sampling, sample_size, show_progress=True)
     with WorkerPool(n_jobs=None) as pool:
         results = pool.map(process_one, csv_files, progress_bar=True)
     completed_files = [r for r in results if r is not None]
