@@ -3,7 +3,6 @@ import pandas as pd
 from turning_scripts.geo.drift_compensation import get_track_drift_rate, great_circle_distance
 from changepy import pelt
 from changepy.costs import normal_mean
-import matplotlib.pyplot as plt
 
 from typing import TypedDict
 
@@ -11,8 +10,6 @@ try:
     from typing import NotRequired
 except ImportError:
     from typing_extensions import NotRequired
-
-import zarr
 
 def forward_fill(arr):
     """
@@ -301,6 +298,8 @@ def get_altitude_change_points(rlastposupdate: pd.DataFrame, lat: np.ndarray, lo
     }
 
 def plot_changepoints(tr: TurnAndRise, df: pd.DataFrame = None, ident:str = None) -> None:
+    import matplotlib.pyplot as plt
+
     tp_lat = tr['tp_lat']
     tp_lon = tr['tp_lon']
     tp_alt = tr['tp_alt']
@@ -332,6 +331,8 @@ def plot_changepoints(tr: TurnAndRise, df: pd.DataFrame = None, ident:str = None
     plt.title('Flight Path with Turning Points (Landed: {})'.format(tr['landed']))
 
 def write_turnandrise_to_zarr(tr: TurnAndRise,  zarr_path: str) -> None:
+    import zarr
+
     zarr_group = zarr.open(zarr_path, mode='w')
 
     # Save each item in the dictionary to the ZARR group
@@ -352,6 +353,8 @@ def write_turnandrise_to_zarr(tr: TurnAndRise,  zarr_path: str) -> None:
             zarr_group.attrs[key] = value
 
 def load_turnandrise_from_zarr(zarr_path: str) -> TurnAndRise:
+    import zarr
+
     # Open the ZARR file in read mode
     zarr_group = zarr.open(zarr_path, mode='r')
 

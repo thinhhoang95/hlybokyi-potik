@@ -12,22 +12,27 @@ Sample usage:
   python pre_scripts2/get_route.py --sample --sample-size 3000
 
   # Short flags
-  python pre_scripts2/get_route.py -i summer24/raw/cs -o summer24/routes -s -n 5000
+  python pre_scripts2/get_route.py -i summer24/raw/cs -o summer24/routes_fast -j 7 -p
 """
-from collections import deque
 import argparse
 import pandas as pd
+import time
 
 import os
 # Add this near the top of your file, before any multiprocessing code
 os.environ['OBJC_DISABLE_INITIALIZE_FORK_SAFETY'] = 'YES'
-import sys
+os.environ.setdefault('OMP_NUM_THREADS', '1')
+os.environ.setdefault('OPENBLAS_NUM_THREADS', '1')
+os.environ.setdefault('MKL_NUM_THREADS', '1')
+os.environ.setdefault('VECLIB_MAXIMUM_THREADS', '1')
+os.environ.setdefault('NUMEXPR_NUM_THREADS', '1')
 import numpy as np
 
 from turning_scripts.get_turns import get_turning_points
 
 from data_preambles import dtypes_no_id
-col_names = ['time', 'icao24', 'lat', 'lon', 'heading', 'callsign', 'geoaltitude', 'id']
+CSV_USECOLS = [0, 1, 2, 3, 4, 5, 6]
+CSV_COL_NAMES = ['time', 'icao24', 'lat', 'lon', 'heading', 'callsign', 'geoaltitude']
 from path_prefix import PATH_PREFIX
 
 from cleaning_script import clean_by_speed as cleaner
@@ -65,10 +70,28 @@ def parse_args():
         default=5000,
         help='Sample size when --sample is set (default: 5000)',
     )
+    p.add_argument(
+        '--jobs', '-j',
+        type=int,
+        default=1,
+        help='Number of worker processes (default: 1)',
+    )
+    p.add_argument(
+        '--progress', '-p',
+        action='store_true',
+        help='Show progress bars (file-level when --jobs=1, per-id for single file)',
+    )
     return p.parse_args()
 
 
-def process_csv_file(csv_file, output_dir, enable_sampling, sample_size, show_progress=False):
+def process_csv_file(
+    csv_file,
+    output_dir,
+    enable_sampling,
+    sample_size,
+    show_progress=True,
+    progress_every=None,
+):
     """Process one CS state CSV into a route-segments CSV.
 
     Loads the CSV, builds flight ``id`` as icao24 + callsign (uppercase). Optionally
@@ -104,42 +127,60 @@ def process_csv_file(csv_file, output_dir, enable_sampling, sample_size, show_pr
         return None
     
     # Load one CSV file
-    hour_df = pd.read_csv(f'{csv_file}', dtype=dtypes_no_id, parse_dates=True)
-    hour_df.columns = col_names
+    hour_df = pd.read_csv(
+        csv_file,
+        dtype=dtypes_no_id,
+        usecols=CSV_USECOLS,
+        names=CSV_COL_NAMES,
+        header=0,
+        memory_map=True,
+    )
     hour_df['id'] = hour_df['icao24'].str.upper() + hour_df['callsign'].str.strip().str.upper()
 
-    hour_ids = hour_df['id'].unique()
-    print(f'There are {len(hour_ids)} unique ids in the hour_df')
-
+    # Drop NaN ids early; they never match in the old `hour_df[hour_df['id'] == id]` loop anyway.
+    hour_df = hour_df[hour_df['id'].notna()]
     if enable_sampling:
+        hour_ids = hour_df['id'].unique()
         if len(hour_ids) > sample_size:
             hour_ids = np.random.choice(hour_ids, sample_size, replace=False)
             print(f'Sampled {len(hour_ids)} ids')
         else:
             print(f'Skipping sampling because there are less than {sample_size} ids')
 
-    seg_id = deque()
-    seg_from_time = deque()
-    seg_to_time = deque()
-    seg_from_lat = deque()
-    seg_from_lon = deque()
-    seg_to_lat = deque()
-    seg_to_lon = deque()
-    seg_from_alt = deque()
-    seg_to_alt = deque()
-    seg_from_speed = deque()
-    seg_to_speed = deque()
+        # Filter once, then group/iterate. This preserves exact per-id rows while avoiding
+        # O(N_rows) boolean scans for every id.
+        hour_df = hour_df[hour_df['id'].isin(hour_ids)]
+
+    grouped = hour_df.groupby('id', sort=False)
+    total_ids = grouped.ngroups
+    print(f'There are {total_ids} unique ids in the hour_df')
+
+    seg_id = []
+    seg_from_time = []
+    seg_to_time = []
+    seg_from_lat = []
+    seg_from_lon = []
+    seg_to_lat = []
+    seg_to_lon = []
+    seg_from_alt = []
+    seg_to_alt = []
+    seg_from_speed = []
+    seg_to_speed = []
 
     callsigns_skipped = 0
-    progress_iter = hour_ids
+
+    progress_iter = grouped
     pbar = None
     if show_progress:
-        pbar = tqdm(hour_ids, desc=f'Processing {file_basename}', total=len(hour_ids))
+        pbar = tqdm(grouped, desc=f'Processing {file_basename}', total=total_ids)
         progress_iter = pbar
 
-    for id in progress_iter:
+    start_time = time.perf_counter()
+    processed_ids = 0
+    pid = os.getpid()
+
+    for id, df_id in progress_iter:
         try:
-            df_id = hour_df[hour_df['id'] == id]
             # Clean the dataframe
             df_id = cleaner.clean_trajectory(df_id)
             tr = get_turning_points(df_id)
@@ -148,37 +189,56 @@ def process_csv_file(csv_file, output_dir, enable_sampling, sample_size, show_pr
             if pbar is not None:
                 pbar.set_postfix(skipped=callsigns_skipped)
             continue
+        finally:
+            processed_ids += 1
+            if progress_every and processed_ids % progress_every == 0:
+                elapsed = max(time.perf_counter() - start_time, 1e-9)
+                avg_speed = processed_ids / elapsed
+                print(
+                    f'[pid {pid}] {processed_ids}/{total_ids} processed, '
+                    f'avg speed: {avg_speed:.1f}/s ({file_basename})',
+                    flush=True,
+                )
 
-        for i in range(len(tr['tp_time']) - 1):
-            seg_id.append(id)
-            seg_from_time.append(tr['tp_time'][i])
-            seg_to_time.append(tr['tp_time'][i+1])
-            seg_from_lat.append(tr['tp_lat'][i])
-            seg_from_lon.append(tr['tp_lon'][i])
-            seg_to_lat.append(tr['tp_lat'][i+1])
-            seg_to_lon.append(tr['tp_lon'][i+1])
-            seg_from_alt.append(tr['tp_alt'][i])
-            seg_to_alt.append(tr['tp_alt'][i+1])
-            seg_from_speed.append(tr['tp_vel'][i])
-            seg_to_speed.append(tr['tp_vel'][i+1])
+        tp_time = tr['tp_time']
+        if len(tp_time) < 2:
+            continue
+
+        tp_lat = tr['tp_lat']
+        tp_lon = tr['tp_lon']
+        tp_alt = tr['tp_alt']
+        tp_vel = tr['tp_vel']
+        count = len(tp_time) - 1
+
+        seg_id.extend([id] * count)
+        seg_from_time.extend(tp_time[:-1])
+        seg_to_time.extend(tp_time[1:])
+        seg_from_lat.extend(tp_lat[:-1])
+        seg_from_lon.extend(tp_lon[:-1])
+        seg_to_lat.extend(tp_lat[1:])
+        seg_to_lon.extend(tp_lon[1:])
+        seg_from_alt.extend(tp_alt[:-1])
+        seg_to_alt.extend(tp_alt[1:])
+        seg_from_speed.extend(tp_vel[:-1])
+        seg_to_speed.extend(tp_vel[1:])
 
     if pbar is not None:
         pbar.close()
 
-    print(f'There were {len(hour_ids)} callsigns, of which {callsigns_skipped} were skipped')
+    print(f'There were {total_ids} callsigns, of which {callsigns_skipped} were skipped')
     
     segments_df = pd.DataFrame({
-        'id': list(seg_id),
-        'from_time': list(seg_from_time),
-        'to_time': list(seg_to_time),
-        'from_lat': list(seg_from_lat),
-        'from_lon': list(seg_from_lon), 
-        'to_lat': list(seg_to_lat),
-        'to_lon': list(seg_to_lon),
-        'from_alt': list(seg_from_alt),
-        'to_alt': list(seg_to_alt),
-        'from_speed': list(seg_from_speed),
-        'to_speed': list(seg_to_speed)
+        'id': seg_id,
+        'from_time': seg_from_time,
+        'to_time': seg_to_time,
+        'from_lat': seg_from_lat,
+        'from_lon': seg_from_lon,
+        'to_lat': seg_to_lat,
+        'to_lon': seg_to_lon,
+        'from_alt': seg_from_alt,
+        'to_alt': seg_to_alt,
+        'from_speed': seg_from_speed,
+        'to_speed': seg_to_speed
     })
     
     output_filename = os.path.join(output_dir, f'{file_basename.split(".")[0]}.csv')
@@ -199,6 +259,8 @@ def main():
     output_dir = args.output_dir
     enable_sampling = args.sample
     sample_size = args.sample_size
+    jobs = args.jobs
+    show_progress = args.progress
 
     print(f'Sampling enabled with sample size of {sample_size}' if enable_sampling else 'Sampling disabled')
 
@@ -218,14 +280,40 @@ def main():
     os.makedirs(output_dir, exist_ok=True)
 
     def process_one(csv_file):
-        return process_csv_file(csv_file, output_dir, enable_sampling, sample_size, show_progress=False)
+        return process_csv_file(
+            csv_file,
+            output_dir,
+            enable_sampling,
+            sample_size,
+            show_progress=False,
+            progress_every=100,
+        )
 
-    # Process first file only (uncomment below for parallel processing of all files)
-    # process_csv_file(csv_files[0], output_dir, enable_sampling, sample_size, show_progress=True)
-    with WorkerPool(n_jobs=None) as pool:
-        results = pool.map(process_one, csv_files, progress_bar=True)
-    completed_files = [r for r in results if r is not None]
-    print(f'Processed {len(completed_files)} files successfully')
+    if jobs <= 1:
+        if show_progress and len(csv_files) > 1:
+            file_iter = tqdm(csv_files, desc='Processing files')
+        else:
+            file_iter = csv_files
+
+        results = []
+        for csv_file in file_iter:
+            per_id_progress = show_progress and len(csv_files) == 1
+            results.append(
+                process_csv_file(
+                    csv_file,
+                    output_dir,
+                    enable_sampling,
+                    sample_size,
+                    show_progress=per_id_progress,
+                )
+            )
+        completed_files = [r for r in results if r is not None]
+        print(f'Processed {len(completed_files)} files successfully')
+    else:
+        with WorkerPool(n_jobs=jobs) as pool:
+            results = pool.map(process_one, csv_files, progress_bar=show_progress)
+        completed_files = [r for r in results if r is not None]
+        print(f'Processed {len(completed_files)} files successfully')
 
 
 if __name__ == '__main__':
