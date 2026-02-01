@@ -1,5 +1,17 @@
 """
-Compute route segments from CS state CSV files.
+Convert raw CS-state CSVs into per-hour route-segment CSVs.
+
+This script reads one or more "CS state" CSV files (typically one file per hour)
+containing time-ordered aircraft state points. For each unique flight identifier
+(``id``), it:
+
+- Cleans the trajectory (see ``cleaning_script.clean_by_speed.clean_trajectory``).
+- Extracts turning points (see ``turning_scripts.get_turns.get_turning_points``).
+- Emits *route segments* between consecutive turning points.
+
+Each input CSV produces one output CSV with the same basename under
+``--output-dir``. If an output file already exists, the corresponding input file
+is skipped.
 
 Sample usage:
   # Defaults: input = PATH_PREFIX/pre_scripts2/cs, output = routes
@@ -13,6 +25,55 @@ Sample usage:
 
   # Short flags
   python pre_scripts2/get_route.py -i summer24/raw/cs -o summer24/routes_fast -j 7 -p
+  j = 7: 7 processes, p = report progress every 100 iters
+
+## Input format
+
+The script reads CSV files with (at least) the following columns (extra columns
+are ignored):
+
+- ``time``: timestamp (whatever the upstream dataset uses; often Unix seconds)
+- ``icao24``: aircraft ICAO24 hex address (string)
+- ``lat`` / ``lon``: latitude/longitude in degrees (float)
+- ``heading``: heading in degrees (float)
+- ``callsign``: callsign (string; may include spaces)
+- ``geoaltitude``: geometric altitude (float; meters in OpenSky datasets)
+
+The internal flight identifier is constructed as:
+
+``id = icao24.upper() + callsign.strip().upper()``
+
+Rows with missing ``id`` are dropped early.
+
+Example input row (illustrative):
+
+    time,icao24,lat,lon,heading,callsign,geoaltitude
+    1716771605,3c66b4,48.3531,11.7862,87.2,"DLH123 ",10436.2
+
+## Output format
+
+Each output CSV contains one row per segment between consecutive turning points,
+with the following columns:
+
+- ``id``
+- ``from_time`` / ``to_time``
+- ``from_lat`` / ``from_lon`` / ``to_lat`` / ``to_lon``
+- ``from_alt`` / ``to_alt``
+- ``from_speed`` / ``to_speed``
+
+Example output row (illustrative):
+
+    id,from_time,to_time,from_lat,from_lon,to_lat,to_lon,from_alt,to_alt,from_speed,to_speed
+    3C66B4DLH123,1716771605,1716771665,48.3531,11.7862,48.4019,11.9210,10436.2,10422.7,244.1,247.8
+
+## CLI parameters (high level)
+
+- ``--input-dir/-i``: directory containing the CS-state CSV files to process.
+- ``--output-dir/-o``: directory where per-input route-segment CSVs are written.
+- ``--sample/-s`` and ``--sample-size/-n``: optionally limit how many unique
+  ``id`` values are processed *per input file*.
+- ``--jobs/-j``: number of worker processes used to process files in parallel.
+- ``--progress/-p``: show progress bars (file-level or per-id depending on run).
 """
 import argparse
 import pandas as pd
@@ -41,7 +102,10 @@ from tqdm import tqdm
 
 
 def parse_args():
-    """Parse command-line arguments for input/output dirs and optional sampling.
+    """Parse command-line arguments.
+
+    The CLI controls where input CSVs are discovered, where outputs are written,
+    and whether to sample a subset of unique flight ids per input file.
 
     Returns:
         argparse.Namespace: Parsed args with ``input_dir``, ``output_dir``,
@@ -92,15 +156,21 @@ def process_csv_file(
     show_progress=True,
     progress_every=None,
 ):
-    """Process one CS state CSV into a route-segments CSV.
+    """Process one CS-state CSV into a route-segments CSV.
 
-    Loads the CSV, builds flight ``id`` as icao24 + callsign (uppercase). Optionally
-    samples up to ``sample_size`` unique ids per file. For each id: cleans the
-    trajectory with ``clean_by_speed.clean_trajectory``, gets turning points with
-    ``get_turning_points``, then emits one segment per pair of consecutive turning
-    points. Skips ids that raise ValueError (e.g. cleaning/turning logic). Writes
-    one output CSV with the same basename as the input under ``output_dir``; skips
-    processing if that output file already exists.
+    This function is the core worker for the script:
+
+    - Reads the input CSV using a fixed set of columns (see ``CSV_USECOLS`` /
+      ``CSV_COL_NAMES``).
+    - Builds a flight ``id`` as ``icao24.upper() + callsign.strip().upper()``.
+    - Optionally samples up to ``sample_size`` ids (when ``enable_sampling``).
+    - For each ``id`` group:
+      - Cleans points via ``cleaner.clean_trajectory``.
+      - Extracts turning points via ``get_turning_points``.
+      - Creates one segment per consecutive turning-point pair.
+    - Skips any ``id`` whose cleaning/turning pipeline raises ``ValueError``.
+    - Writes a single output CSV (same basename as the input) under ``output_dir``.
+      If the output path already exists, the file is skipped.
 
     Parameters
     ----------
@@ -112,6 +182,12 @@ def process_csv_file(
         If True, process at most ``sample_size`` randomly chosen ids per file.
     sample_size : int
         Max number of ids to process per file when ``enable_sampling`` is True.
+    show_progress : bool, default True
+        If True, shows a per-id progress bar while processing this file.
+        (When running multiple files sequentially, the script only enables
+        per-id progress for the single-file case to avoid noisy nested bars.)
+    progress_every : int | None, default None
+        If provided, prints an occasional throughput line every N processed ids.
 
     Returns
     -------
@@ -247,12 +323,17 @@ def process_csv_file(
     return output_filename
 
 def main():
-    """Discover CS state CSVs in the input directory and process them into route segments.
+    """Discover input CSVs and produce route-segment CSVs.
 
     Creates the output directory if needed, walks the input dir for ``.csv`` files
     (excluding names starting with ``._``), and processes each file via
-    ``process_csv_file``. Parallel processing (WorkerPool) is currently commented
-    out; uncomment to run all files in parallel.
+    ``process_csv_file``.
+
+    Parallelism is controlled by ``--jobs``:
+
+    - If ``--jobs <= 1``: process files sequentially in the current process.
+    - If ``--jobs > 1``: use ``mpire.WorkerPool`` to distribute files across
+      multiple processes.
     """
     args = parse_args()
     cs_input_dir = args.input_dir
