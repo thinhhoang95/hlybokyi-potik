@@ -16,4 +16,4 @@ rsync -av --progress --partial --inplace -e "ssh -p 19200" root@154.54.102.18:/r
 ```
 - After building the segment dataset, verify a few IDs with the notebook `inspect_routes.ipynb` and compare the segments to the original ADS-B dataset.
 - Use `count_blocks.ipynb` notebook to build a basic count output.
-- Use `infer_route_auto_server.py` script from project-akrav (route_infer module) to obtain the waypoint named routes.
+- Use `infer_route_auto_server.py` script from project-akrav (full path: `project-akrav/route_infer/infer_route_auto_server.py`) (route_infer module) to obtain the waypoint named routes. Use the `infer_route52` since it supports 4D trajectory output (instead of just 3D).
